@@ -1,246 +1,198 @@
-// UUIDs (müssen mit Arduino übereinstimmen)
-const SRV_UUID = "19b10000-e8f2-537e-4f6c-d104768a1214";
-const CHAR_CMD = "19b10001-e8f2-537e-4f6c-d104768a1214";
-const CHAR_SET = "19b10002-e8f2-537e-4f6c-d104768a1214";
-const CHAR_SCH = "19b10003-e8f2-537e-4f6c-d104768a1214";
-const CHAR_STA = "19b10004-e8f2-537e-4f6c-d104768a1214";
-const CHAR_TIM = "19b10005-e8f2-537e-4f6c-d104768a1214";
+const UUIDS = {
+    SERVICE: "19b10000-e8f2-537e-4f6c-d104768a1214",
+    CMD:     "19b10001-e8f2-537e-4f6c-d104768a1214",
+    SET:     "19b10002-e8f2-537e-4f6c-d104768a1214",
+    SCHED:   "19b10003-e8f2-537e-4f6c-d104768a1214",
+    TIME:    "19b10005-e8f2-537e-4f6c-d104768a1214"
+};
 
 let device, server;
-let cCmd, cSet, cSch, cSta, cTim;
-let isYellow = false;
-let pollingInterval;
-let activeSchedule = [];
+let chars = {};
 
-// DOM Elements
+// UI Elemente
 const connectBtn = document.getElementById('connectBtn');
-const statusInd = document.getElementById('statusIndicator');
-const panel = document.getElementById('controlPanel');
-const feedback = document.getElementById('deviceFeedback');
+const statusMsg = document.getElementById('statusMessage');
+const connectOverlay = document.getElementById('connectOverlay');
+const mainUI = document.getElementById('mainUI');
 
 connectBtn.addEventListener('click', connectBLE);
 
-// Event Listeners UI
-document.getElementById('yellowFlagBtn').addEventListener('click', toggleYellow);
-document.getElementById('manualStartBtn').addEventListener('click', manualStart);
+// Buttons Events
 document.getElementById('cancelBtn').addEventListener('click', () => sendCmd("/cancel"));
-document.getElementById('setLedTextBtn').addEventListener('click', () => {
-    sendCmd(`/ledText=${encodeURIComponent(document.getElementById('ledTextInput').value)}`);
+document.getElementById('sendIdsBtn').addEventListener('click', fetchAndSendSchedule);
+document.getElementById('sendTextBtn').addEventListener('click', () => {
+    let txt = document.getElementById('myLEDText').value;
+    sendCmd(`/ledText=${encodeURIComponent(txt)}`);
 });
-document.getElementById('fetchScheduleBtn').addEventListener('click', fetchSchedule);
+document.getElementById('mStartBtn').addEventListener('click', manualStart);
+document.getElementById('rndStartBtn').addEventListener('click', manualRndStart);
 
-// Sliders (Debounced change)
-document.getElementById('brtMatrix').addEventListener('change', (e) => sendCmd(`/brt_led_matrix=${e.target.value}`));
-document.getElementById('volMp3').addEventListener('change', (e) => sendCmd(`/vol=${e.target.value}`));
+// Settings Change Events
+document.getElementById('vol').addEventListener('change', (e) => sendCmd(`/vol=${e.target.value}`));
+document.getElementById('brt_led_matrix').addEventListener('change', (e) => sendCmd(`/brt_led_matrix=${e.target.value}`));
+document.getElementById('greenOnOff').addEventListener('change', (e) => sendCmd(`/greenOnOff=${e.target.checked}`));
 
 
 async function connectBLE() {
     try {
+        statusMsg.innerText = "Suche Gerät...";
         device = await navigator.bluetooth.requestDevice({
             filters: [{ name: 'DR!FT Ampel' }],
-            optionalServices: [SRV_UUID]
+            optionalServices: [UUIDS.SERVICE]
         });
 
         device.addEventListener('gattserverdisconnected', onDisconnect);
-        statusInd.innerText = "● Verbinde...";
         
+        statusMsg.innerText = "Verbinde...";
         server = await device.gatt.connect();
-        const service = await server.getPrimaryService(SRV_UUID);
+        const service = await server.getPrimaryService(UUIDS.SERVICE);
         
-        // Characteristics holen
-        cCmd = await service.getCharacteristic(CHAR_CMD);
-        cSet = await service.getCharacteristic(CHAR_SET);
-        cSch = await service.getCharacteristic(CHAR_SCH);
-        cSta = await service.getCharacteristic(CHAR_STA);
-        cTim = await service.getCharacteristic(CHAR_TIM);
+        chars.cmd = await service.getCharacteristic(UUIDS.CMD);
+        chars.set = await service.getCharacteristic(UUIDS.SET);
+        chars.sched = await service.getCharacteristic(UUIDS.SCHED);
+        chars.time = await service.getCharacteristic(UUIDS.TIME);
 
-        // Notifications für Status
-        await cSta.startNotifications();
-        cSta.addEventListener('characteristicvaluechanged', (e) => {
-            const dec = new TextDecoder();
-            feedback.innerText = dec.decode(e.target.value);
-        });
+        // UI Umschalten
+        connectOverlay.classList.add('hidden');
+        mainUI.classList.remove('hidden');
 
-        // Init Sequence
+        // Initialisierung
         await syncTime();
         await loadSettings();
 
-        onConnect();
-    } catch (err) {
-        console.error(err);
-        alert("Verbindung fehlgeschlagen: " + err.message);
+    } catch (e) {
+        console.error(e);
+        statusMsg.innerText = "Fehler: " + e.message;
     }
 }
 
-function onConnect() {
-    statusInd.innerText = "● Verbunden";
-    statusInd.classList.replace('disconnected', 'connected');
-    document.getElementById('connectionSection').classList.add('hidden');
-    panel.classList.remove('hidden');
-    
-    // Starte Polling Loop (alle 5s)
-    pollingInterval = setInterval(pollActiveRace, 5000);
-}
-
 function onDisconnect() {
-    statusInd.innerText = "● Getrennt";
-    statusInd.classList.replace('connected', 'disconnected');
-    document.getElementById('connectionSection').classList.remove('hidden');
-    panel.classList.add('hidden');
-    clearInterval(pollingInterval);
-}
-
-async function syncTime() {
-    // Sende aktuellen Unix Timestamp (little endian)
-    const now = Math.floor(Date.now() / 1000);
-    const buffer = new ArrayBuffer(4);
-    new DataView(buffer).setUint32(0, now, true);
-    await cTim.writeValue(buffer);
+    connectOverlay.classList.remove('hidden');
+    mainUI.classList.add('hidden');
+    statusMsg.innerText = "Verbindung getrennt.";
 }
 
 async function sendCmd(cmd) {
-    if(!cCmd) return;
+    if (!chars.cmd) return;
     const enc = new TextEncoder();
-    await cCmd.writeValue(enc.encode(cmd));
+    await chars.cmd.writeValue(enc.encode(cmd));
+}
+
+async function syncTime() {
+    // Aktuellen Unix Timestamp senden (Little Endian)
+    const now = Math.floor(Date.now() / 1000);
+    const buffer = new ArrayBuffer(4);
+    new DataView(buffer).setUint32(0, now, true);
+    await chars.time.writeValue(buffer);
+    console.log("Zeit synchronisiert:", now);
 }
 
 async function loadSettings() {
-    const val = await cSet.readValue();
+    // Liest JSON vom Arduino
+    const val = await chars.set.readValue();
     const dec = new TextDecoder();
     try {
         const json = JSON.parse(dec.decode(val));
-        document.getElementById('ledTextInput').value = json.LEDText || "";
-        document.getElementById('brtMatrix').value = json.brtM || 1;
-        document.getElementById('volMp3').value = json.vol || 20;
-        isYellow = json.isY || false;
-        updateYellowBtn();
-    } catch(e) { console.log("JSON Parse Error Settings"); }
+        document.getElementById('myLEDText').value = json.LEDText || "";
+        document.getElementById('vol').value = json.volume || 20;
+        document.getElementById('brt_led_matrix').value = json.brt_led_matrix || 1;
+        document.getElementById('greenOnOff').checked = json.greenLight || false;
+    } catch(e) { console.log("Settings Load Error"); }
 }
 
-function toggleYellow() {
-    if(isYellow) sendCmd("/yellowFlagOff");
-    else sendCmd("/yellowFlagOn");
-    isYellow = !isYellow;
-    updateYellowBtn();
-}
+// --- Schedule Logik ---
 
-function updateYellowBtn() {
-    const btn = document.getElementById('yellowFlagBtn');
-    btn.innerText = isYellow ? "Yellow Flag OFF" : "Yellow Flag ON";
-    btn.style.backgroundColor = isYellow ? "#ef4444" : "#eab308";
-}
-
-function manualStart() {
-    const durStr = document.getElementById('manDuration').value;
-    const pre = document.getElementById('manPreStart').value;
-    // Duration String zu Sekunden
-    const p = durStr.split(':');
-    const sec = (+p[0]) * 3600 + (+p[1]) * 60 + (+p[2]);
-    sendCmd(`/mStart&dur=${sec}&preT=${parseInt(pre)+2}`);
-}
-
-// --- Schedule & API Logic ---
-
-async function fetchSchedule() {
-    const idsInput = document.getElementById('gameIDs').value;
-    const eventInput = document.getElementById('eventLink').value;
+async function fetchAndSendSchedule() {
+    const idsInput = document.getElementById('myID').value;
+    const ids = idsInput.split(',').map(s => s.trim()).filter(s => s);
     let sessions = [];
 
-    feedback.innerText = "Lade Daten...";
-
-    // Logik für Event-Link Auflösung wäre hier ähnlich wie im Original
-    // Wir fokussieren uns hier auf direkte Game-IDs für Stabilität
-    const ids = idsInput.split(',').map(s => s.trim()).filter(s => s);
+    document.getElementById('schedule-list').innerHTML = "<p>Lade Daten...</p>";
 
     for(let id of ids) {
-        // ID Format Analyse: g/GROUP/EVENT/SESSION
         const parts = id.split('/');
-        // Fallback wenn direkte ID
-        let apiUrl = "";
-        if(parts.length >= 4) {
-            apiUrl = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2Fg%2F${parts[1]}%2F${parts[2]}%2Fsession%2F${parts[3]}`;
-        } else {
-             // Versuche direkte Session ID Abfrage wenn API das erlaubt, sonst Error
-             continue; 
-        }
-
+        // Beispiel-API Aufruf (Anpassung an echte Driftclub API Struktur notwendig)
+        const apiUrl = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2Fg%2F${parts[1]}%2F${parts[2]}%2Fsession%2F${parts[3]}`;
+        
         try {
             const res = await fetch(apiUrl);
             const data = await res.json();
             if(data && data.setup) {
+                let duration = 0;
+                // Zeit parsen HH:MM:SS zu Sekunden
+                if(data.setup.finishType !== 'laps' && data.setup.duration) {
+                    const t = data.setup.duration.split(':');
+                    duration = (+t[0])*3600 + (+t[1])*60 + (+t[2]);
+                }
+
                 sessions.push({
-                    name: data.name,
-                    sessionID: data._id,
-                    startTime: Math.floor(new Date(data.setup.startTime).getTime()/1000),
-                    duration: data.setup.finishType === 'laps' ? "00:00:00" : data.setup.duration,
-                    laps: data.setup.laps || 0,
-                    startDelay: data.setup.startDelay || 0
+                    n: data.name.substring(0,30), // Name kürzen für Arduino
+                    t: Math.floor(new Date(data.setup.startTime).getTime()/1000), // Startzeit
+                    d: duration, // Dauer in Sek
+                    dl: (data.setup.startDelay || 0) * 1000 // Delay in ms
                 });
             }
         } catch(e) { console.error(e); }
     }
 
     if(sessions.length > 0) {
-        sessions.sort((a,b) => a.startTime - b.startTime);
-        activeSchedule = sessions;
-        document.getElementById('schedulePreview').innerText = `${sessions.length} Rennen geladen.`;
-        await uploadSchedule(sessions);
+        sessions.sort((a,b) => a.t - b.t);
+        renderScheduleList(sessions);
+        await uploadScheduleToArduino(sessions);
     } else {
-        feedback.innerText = "Keine Rennen gefunden.";
+        document.getElementById('schedule-list').innerHTML = "<p>Keine Rennen gefunden.</p>";
     }
 }
 
-async function uploadSchedule(sessions) {
-    feedback.innerText = "Sende Zeitplan...";
+function renderScheduleList(sessions) {
+    const list = document.getElementById('schedule-list');
+    list.innerHTML = "";
+    sessions.forEach(s => {
+        const d = new Date(s.t * 1000);
+        const timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const div = document.createElement('div');
+        div.className = 'schedule-item';
+        div.innerHTML = `<span>${timeStr}</span> <span>${s.n}</span>`;
+        list.appendChild(div);
+    });
+}
+
+async function uploadScheduleToArduino(sessions) {
+    // Protokoll: RESET -> Chunks -> PARSE
+    // Wir senden JSON, aber minimiert: [{"n":"Name","t":123,"d":300,"dl":0}]
     
-    // 1. Reset
-    await cSch.writeValue(new TextEncoder().encode("RESET"));
+    await chars.sched.writeValue(new TextEncoder().encode("RESET"));
     
-    // 2. Sende JSON in 100-Byte Chunks
     const json = JSON.stringify(sessions);
-    const chunkSize = 100;
+    const chunkSize = 100; // BLE Limit beachten
     
     for (let i = 0; i < json.length; i += chunkSize) {
         const chunk = json.substring(i, i + chunkSize);
-        await cSch.writeValue(new TextEncoder().encode(chunk));
-        await new Promise(r => setTimeout(r, 30)); // Kurze Pause für Arduino Buffer
+        await chars.sched.writeValue(new TextEncoder().encode(chunk));
+        await new Promise(r => setTimeout(r, 50)); // Kleines Delay für Arduino Buffer
     }
     
-    // 3. Parse Command
-    await cSch.writeValue(new TextEncoder().encode("PARSE"));
+    await chars.sched.writeValue(new TextEncoder().encode("PARSE"));
+    alert("Zeitplan an Ampel übertragen!");
 }
 
-// --- Polling Logic ---
-async function pollActiveRace() {
-    if(!activeSchedule.length) return;
+// --- Helper ---
 
-    const now = Math.floor(Date.now()/1000);
-    // Finde aktives Rundenrennen
-    // Ein Rennen ist aktiv, wenn Startzeit vorbei ist UND es ein Rundenrennen ist (laps > 0)
-    // und es noch nicht als 'finished' markiert wurde (das wissen wir lokal nicht, also Zeitfenster)
-    
-    const active = activeSchedule.find(s => 
-        s.laps > 0 && 
-        now >= s.startTime && 
-        now < (s.startTime + 7200) // Annahme: Rennen dauert max 2h
-    );
+function manualStart() {
+    const durStr = document.getElementById('duration-input').value;
+    const pre = document.getElementById('preStartTime').value;
+    const p = durStr.split(':');
+    const sec = (+p[0])*3600 + (+p[1])*60 + (+p[2]);
+    sendCmd(`/mStart&dur=${sec}&preT=${parseInt(pre)+2}`);
+}
 
-    if(active) {
-        try {
-            const res = await fetch(`https://driftclub.com/api/leaderboard/session?sessionID=${active.sessionID}`);
-            const data = await res.json();
-            
-            if(data && data[0]) {
-                // Status Prüfung
-                if(data[0].state === 'finished') {
-                    await sendCmd("raceOver");
-                    // Entferne aus active Schedule um Polling zu stoppen
-                    activeSchedule = activeSchedule.filter(s => s !== active);
-                } else if (data[0].overall) {
-                    const driven = data[0].overall.drivenLaps || 0;
-                    await sendCmd(`/updateLaps=${driven}`);
-                }
-            }
-        } catch(e) { console.log("Poll Fehler"); }
-    }
+function manualRndStart() {
+    const durStr = document.getElementById('duration-input').value;
+    const pre = document.getElementById('preStartTime').value;
+    const p = durStr.split(':');
+    const sec = (+p[0])*3600 + (+p[1])*60 + (+p[2]);
+    // Random delay (z.B. 0-3 Sek) wird hier clientseitig als Dummy gesendet oder im Arduino berechnet
+    // Das Original sendet "&rnd=..."
+    const rnd = Math.floor(Math.random() * 30) * 100;
+    sendCmd(`/rndStart&dur=${sec}&rnd=${rnd}&preT=${parseInt(pre)+2}`);
 }

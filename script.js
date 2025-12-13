@@ -15,9 +15,8 @@ const statusMsg = document.getElementById('statusMessage');
 const connectOverlay = document.getElementById('connectOverlay');
 const mainUI = document.getElementById('mainUI');
 
+// Event Listener
 connectBtn.addEventListener('click', connectBLE);
-
-// Buttons Events
 document.getElementById('cancelBtn').addEventListener('click', () => sendCmd("/cancel"));
 document.getElementById('sendIdsBtn').addEventListener('click', fetchAndSendSchedule);
 document.getElementById('sendTextBtn').addEventListener('click', () => {
@@ -33,9 +32,29 @@ document.getElementById('brt_led_matrix').addEventListener('change', (e) => send
 document.getElementById('greenOnOff').addEventListener('change', (e) => sendCmd(`/greenOnOff=${e.target.checked}`));
 
 
+/**
+ * HILFSFUNKTION: Exponential Backoff
+ * Versucht eine Funktion mehrfach auszuführen, wenn sie fehlschlägt.
+ * @param {number} max    Maximale Anzahl Versuche
+ * @param {number} delay  Wartezeit in ms
+ * @param {function} toTry Die auszuführende Funktion (Promise)
+ */
+async function exponentialBackoff(max, delay, toTry) {
+    try {
+        return await toTry();
+    } catch (error) {
+        if (max <= 0) throw error;
+        console.log(`Verbindung fehlgeschlagen, neuer Versuch in ${delay}ms... (${max} übrig)`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return exponentialBackoff(max - 1, delay * 2, toTry);
+    }
+}
+
 async function connectBLE() {
     try {
         statusMsg.innerText = "Suche Gerät...";
+        
+        // 1. Gerät anfordern (Muss durch User-Klick ausgelöst werden)
         device = await navigator.bluetooth.requestDevice({
             filters: [{ name: 'DR!FT Ampel' }],
             optionalServices: [UUIDS.SERVICE]
@@ -44,13 +63,29 @@ async function connectBLE() {
         device.addEventListener('gattserverdisconnected', onDisconnect);
         
         statusMsg.innerText = "Verbinde...";
-        server = await device.gatt.connect();
+
+        // 2. Verbindungsaufbau mit Retry-Logik (3 Versuche)
+        server = await exponentialBackoff(3, 500, async () => {
+            // Falls noch verbunden, kurz trennen um sauberen State zu haben
+            if (device.gatt.connected) {
+                device.gatt.disconnect();
+            }
+            return await device.gatt.connect();
+        });
+
+        // 3. Services und Characteristics holen
+        statusMsg.innerText = "Lade Dienste...";
         const service = await server.getPrimaryService(UUIDS.SERVICE);
         
-        chars.cmd = await service.getCharacteristic(UUIDS.CMD);
-        chars.set = await service.getCharacteristic(UUIDS.SET);
-        chars.sched = await service.getCharacteristic(UUIDS.SCHED);
-        chars.time = await service.getCharacteristic(UUIDS.TIME);
+        // Parallel laden für mehr Geschwindigkeit, aber einzeln fangen für Sicherheit
+        const charPromises = [
+            service.getCharacteristic(UUIDS.CMD).then(c => chars.cmd = c),
+            service.getCharacteristic(UUIDS.SET).then(c => chars.set = c),
+            service.getCharacteristic(UUIDS.SCHED).then(c => chars.sched = c),
+            service.getCharacteristic(UUIDS.TIME).then(c => chars.time = c)
+        ];
+
+        await Promise.all(charPromises);
 
         // UI Umschalten
         connectOverlay.classList.add('hidden');
@@ -62,42 +97,81 @@ async function connectBLE() {
 
     } catch (e) {
         console.error(e);
-        statusMsg.innerText = "Fehler: " + e.message;
+        statusMsg.innerText = "Fehler: " + e.message + " (Bitte neu versuchen)";
+        // Falls wir halb verbunden waren, aufräumen
+        if (device && device.gatt.connected) {
+            device.gatt.disconnect();
+        }
     }
 }
 
 function onDisconnect() {
+    console.log("Gerät getrennt.");
     connectOverlay.classList.remove('hidden');
     mainUI.classList.add('hidden');
-    statusMsg.innerText = "Verbindung getrennt.";
+    statusMsg.innerText = "Verbindung getrennt. Bitte neu verbinden.";
+    
+    // Variablen bereinigen
+    chars = {};
+    server = null;
+    // device behalten wir, um ggf. reconnecten zu können (browserabhängig)
 }
 
+/**
+ * Sendet Befehle robuster.
+ * Prüft vorher, ob die Verbindung noch steht.
+ */
 async function sendCmd(cmd) {
-    if (!chars.cmd) return;
-    const enc = new TextEncoder();
-    await chars.cmd.writeValue(enc.encode(cmd));
+    if (!device || !device.gatt.connected || !chars.cmd) {
+        console.warn("Nicht verbunden, Befehl ignoriert:", cmd);
+        alert("Verbindung verloren! Bitte neu verbinden.");
+        onDisconnect();
+        return;
+    }
+    
+    try {
+        const enc = new TextEncoder();
+        await chars.cmd.writeValue(enc.encode(cmd));
+    } catch (e) {
+        console.error("Senden fehlgeschlagen:", e);
+        // Bei Netzwerkfehler UI zurücksetzen
+        if (e.message.includes("NetworkError") || e.message.includes("disconnected")) {
+            onDisconnect();
+        }
+    }
 }
 
 async function syncTime() {
-    // Aktuellen Unix Timestamp senden (Little Endian)
-    const now = Math.floor(Date.now() / 1000);
-    const buffer = new ArrayBuffer(4);
-    new DataView(buffer).setUint32(0, now, true);
-    await chars.time.writeValue(buffer);
-    console.log("Zeit synchronisiert:", now);
+    if (!chars.time) return;
+    try {
+        const now = Math.floor(Date.now() / 1000);
+        const buffer = new ArrayBuffer(4);
+        new DataView(buffer).setUint32(0, now, true);
+        await chars.time.writeValue(buffer);
+        console.log("Zeit synchronisiert:", now);
+    } catch (e) {
+        console.error("Zeit Sync Fehler:", e);
+    }
 }
 
 async function loadSettings() {
-    // Liest JSON vom Arduino
-    const val = await chars.set.readValue();
-    const dec = new TextDecoder();
+    if (!chars.set) return;
     try {
+        const val = await chars.set.readValue();
+        const dec = new TextDecoder();
         const json = JSON.parse(dec.decode(val));
-        document.getElementById('myLEDText').value = json.LEDText || "";
-        document.getElementById('vol').value = json.volume || 20;
-        document.getElementById('brt_led_matrix').value = json.brt_led_matrix || 1;
-        document.getElementById('greenOnOff').checked = json.greenLight || false;
-    } catch(e) { console.log("Settings Load Error"); }
+        
+        if (document.getElementById('myLEDText')) 
+            document.getElementById('myLEDText').value = json.LEDText || "";
+        if (document.getElementById('vol'))
+            document.getElementById('vol').value = json.volume || 20;
+        if (document.getElementById('brt_led_matrix'))
+            document.getElementById('brt_led_matrix').value = json.brt_led_matrix || 1;
+        if (document.getElementById('greenOnOff'))
+            document.getElementById('greenOnOff').checked = json.greenLight || false;
+    } catch(e) { 
+        console.log("Settings Load Error", e); 
+    }
 }
 
 // --- Schedule Logik ---
@@ -107,32 +181,44 @@ async function fetchAndSendSchedule() {
     const ids = idsInput.split(',').map(s => s.trim()).filter(s => s);
     let sessions = [];
 
-    document.getElementById('schedule-list').innerHTML = "<p>Lade Daten...</p>";
+    const listEl = document.getElementById('schedule-list');
+    listEl.innerHTML = "<p>Lade Daten...</p>";
 
     for(let id of ids) {
+        // Einfache Fehlerbehandlung bei leerer ID
+        if(id.length < 3) continue; 
+        
         const parts = id.split('/');
-        // Beispiel-API Aufruf (Anpassung an echte Driftclub API Struktur notwendig)
+        // Falls Format falsch, überspringen
+        if (parts.length < 4) {
+            console.warn("ID Format falsch:", id);
+            continue;
+        }
+
         const apiUrl = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2Fg%2F${parts[1]}%2F${parts[2]}%2Fsession%2F${parts[3]}`;
         
         try {
             const res = await fetch(apiUrl);
+            if (!res.ok) throw new Error("API Fehler");
             const data = await res.json();
+            
             if(data && data.setup) {
                 let duration = 0;
-                // Zeit parsen HH:MM:SS zu Sekunden
                 if(data.setup.finishType !== 'laps' && data.setup.duration) {
                     const t = data.setup.duration.split(':');
                     duration = (+t[0])*3600 + (+t[1])*60 + (+t[2]);
                 }
 
                 sessions.push({
-                    n: data.name.substring(0,30), // Name kürzen für Arduino
-                    t: Math.floor(new Date(data.setup.startTime).getTime()/1000), // Startzeit
-                    d: duration, // Dauer in Sek
-                    dl: (data.setup.startDelay || 0) * 1000 // Delay in ms
+                    n: data.name.substring(0,30), 
+                    t: Math.floor(new Date(data.setup.startTime).getTime()/1000), 
+                    d: duration, 
+                    dl: (data.setup.startDelay || 0) * 1000 
                 });
             }
-        } catch(e) { console.error(e); }
+        } catch(e) { 
+            console.error("Fehler bei ID " + id, e); 
+        }
     }
 
     if(sessions.length > 0) {
@@ -140,7 +226,7 @@ async function fetchAndSendSchedule() {
         renderScheduleList(sessions);
         await uploadScheduleToArduino(sessions);
     } else {
-        document.getElementById('schedule-list').innerHTML = "<p>Keine Rennen gefunden.</p>";
+        listEl.innerHTML = "<p>Keine Rennen gefunden oder Fehler beim Laden.</p>";
     }
 }
 
@@ -158,22 +244,31 @@ function renderScheduleList(sessions) {
 }
 
 async function uploadScheduleToArduino(sessions) {
-    // Protokoll: RESET -> Chunks -> PARSE
-    // Wir senden JSON, aber minimiert: [{"n":"Name","t":123,"d":300,"dl":0}]
-    
-    await chars.sched.writeValue(new TextEncoder().encode("RESET"));
-    
-    const json = JSON.stringify(sessions);
-    const chunkSize = 100; // BLE Limit beachten
-    
-    for (let i = 0; i < json.length; i += chunkSize) {
-        const chunk = json.substring(i, i + chunkSize);
-        await chars.sched.writeValue(new TextEncoder().encode(chunk));
-        await new Promise(r => setTimeout(r, 50)); // Kleines Delay für Arduino Buffer
+    if (!device || !device.gatt.connected || !chars.sched) {
+        alert("Nicht verbunden!");
+        return;
     }
-    
-    await chars.sched.writeValue(new TextEncoder().encode("PARSE"));
-    alert("Zeitplan an Ampel übertragen!");
+
+    try {
+        await chars.sched.writeValue(new TextEncoder().encode("RESET"));
+        
+        const json = JSON.stringify(sessions);
+        const chunkSize = 100; 
+        
+        for (let i = 0; i < json.length; i += chunkSize) {
+            const chunk = json.substring(i, i + chunkSize);
+            await chars.sched.writeValue(new TextEncoder().encode(chunk));
+            // Wichtig: Delay, damit der Arduino Buffer nicht überläuft
+            await new Promise(r => setTimeout(r, 50)); 
+        }
+        
+        await chars.sched.writeValue(new TextEncoder().encode("PARSE"));
+        alert("Zeitplan an Ampel übertragen!");
+    } catch (e) {
+        console.error("Upload Fehler:", e);
+        alert("Fehler beim Übertragen des Zeitplans.");
+        if (!device.gatt.connected) onDisconnect();
+    }
 }
 
 // --- Helper ---
@@ -191,8 +286,6 @@ function manualRndStart() {
     const pre = document.getElementById('preStartTime').value;
     const p = durStr.split(':');
     const sec = (+p[0])*3600 + (+p[1])*60 + (+p[2]);
-    // Random delay (z.B. 0-3 Sek) wird hier clientseitig als Dummy gesendet oder im Arduino berechnet
-    // Das Original sendet "&rnd=..."
     const rnd = Math.floor(Math.random() * 30) * 100;
     sendCmd(`/rndStart&dur=${sec}&rnd=${rnd}&preT=${parseInt(pre)+2}`);
 }

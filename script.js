@@ -130,11 +130,11 @@ function loadGameIds() {
     const ids = $ID("myID").value;
     if(!ids) return alert("ID eingeben!");
     
-    // Starte Monitoring
     if(pollingInterval) clearInterval(pollingInterval);
     fetchData(ids);
     pollingInterval = setInterval(() => fetchData(ids), 2000);
     printState("Monitoring aktiv...");
+    console.log("--- START MONITORING ---");
 }
 
 async function fetchData(rawIds) {
@@ -144,17 +144,15 @@ async function fetchData(rawIds) {
     for (const id of idList) {
         if(!id) continue;
         const p = id.split('/');
-        // URL anpassen falls API anders ist
         const url = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2F${p[0]}%2F${p[1]}%2F${p[2]}%2Fsession%2F${p[3]||''}`;
         
         try {
             const res = await fetch(url);
             const data = await res.json();
             
-            console.log(`[API] ID: ${id}`, data);
+            // console.log(`[API RAW] ID ${id}:`, data); 
             
             if(data && data.setup) {
-                // Duration parse
                 let durSec = 300;
                 if(data.setup.duration) {
                     const dp = data.setup.duration.split(':');
@@ -166,26 +164,28 @@ async function fetchData(rawIds) {
                     name: data.name,
                     startTime: Math.floor(Date.parse(data.setup.startTime) / 1000),
                     duration: durSec,
+                    delay: data.setup.startDelay || 0, // HIER IST DAS DELAY (in Sekunden)
                     rawTime: data.setup.startTime
                 });
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error(`Fetch Error ${id}:`, e); }
     }
 
-    // Sort & Render
     allSessions.sort((a, b) => a.startTime - b.startTime);
+    
+    // UI Update (Liste)
     const listEl = $ID('schedule-list');
     if(allSessions.length === 0) listEl.innerHTML = "<p>Keine Daten.</p>";
     else {
         listEl.innerHTML = allSessions.map(s => `
             <div class="schedule-item">
-                <span>${s.name}</span>
+                <span>${s.name} (Delay: ${s.delay}s)</span>
                 <span>${new Date(s.startTime*1000).toLocaleTimeString()}</span>
             </div>
         `).join('');
     }
 
-    // Check Next Race
+    // Automatik Prüfung
     const now = Math.floor(Date.now() / 1000);
     const next = allSessions.find(s => s.startTime > (now - 300));
     
@@ -193,14 +193,21 @@ async function fetchData(rawIds) {
         const diff = next.startTime - now;
         printState(`Next: ${next.name} in ${diff}s`);
         
-        // Trigger Logic
+        // Sende Befehl wenn neu und noch nicht vorbei
         if (scheduledRaceID !== next.id && diff > -next.duration) {
-            console.log(`[TRIGGER] Sende Rennen ${next.name} an Ampel`);
-            // Format: /setRace?start=UNIX&dur=SEC&name=NAME
-            sendDataCmd(`/setRace?start=${next.startTime}&dur=${next.duration}&name=${encodeURIComponent(next.name)}`);
+            console.log(`[AUTO-START] Triggering ${next.name} (Delay: ${next.delay}s)`);
+            
+            // WICHTIG: delay * 1000 für Millisekunden
+            const delayMs = Math.round(next.delay * 1000);
+            
+            // NEU: &rnd=Parameter hinzugefügt
+            const cmd = `/setRace?start=${next.startTime}&dur=${next.duration}&rnd=${delayMs}&name=${encodeURIComponent(next.name)}`;
+            
+            sendDataCmd(cmd);
             scheduledRaceID = next.id;
         }
     } else {
         printState("Keine Rennen anstehend.");
     }
 }
+

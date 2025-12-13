@@ -8,8 +8,9 @@ let commandChar;
 let timeSyncInterval;
 let pollingInterval;
 let isYellowFlagActive = false;
+let isWriting = false; // Sperre für gleichzeitiges Senden (Wichtig für Batch!)
 
-// --- INITIALISIERUNG (Original UI Verhalten) ---
+// --- INITIALISIERUNG ---
 $(document).ready(function() {
     // Verstecke Bereiche standardmäßig
     $("#manual-start-content").hide();
@@ -25,21 +26,25 @@ $(document).ready(function() {
     });
 });
 
-// --- HELFER FUNKTIONEN (Für HTML Events) ---
+// --- HELFER FUNKTIONEN ---
 function $ID(id) { return document.getElementById(id); }
 
-// Mapping Funktion für Slider (z.B. Matrix Speed)
 function reMap(val, in_min, in_max, out_min, out_max) {
     return (val - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
-// UI Updates für Slider Texte
 function writeVolNum(id, val) { $ID(id).innerHTML = "Volume: " + val; }
 function writeDelayNum(id, val) { $ID(id).innerHTML = "S.Delay: " + Math.round(val) + "ms"; }
 
-// Status Ausgabe
 function printState(msg) {
     if(msg) $ID("state0").innerHTML = msg;
+}
+
+// Bereinigt Namen für die LED Matrix (Entfernt Sonderzeichen)
+function cleanString(str) {
+    if(!str) return "Rennen";
+    // Erlaubt nur: A-Z, a-z, 0-9, Leerzeichen, Bindestrich, Punkt, Doppelpunkt
+    return str.replace(/[^a-zA-Z0-9 \-.:]/g, "").substring(0, 20);
 }
 
 // --- BLE VERBINDUNG ---
@@ -56,7 +61,6 @@ async function connectBLE() {
         const service = await server.getPrimaryService(SERVICE_UUID);
         commandChar = await service.getCharacteristic(COMMAND_UUID);
         
-        // UI Updates nach erfolgreicher Verbindung
         $ID('bleState').innerHTML = "Verbunden";
         $ID('bleState').style.color = "#4cd137";
         $ID('main-content').style.display = 'block';
@@ -70,6 +74,7 @@ async function connectBLE() {
     } catch (e) { 
         alert("Verbindung fehlgeschlagen: " + e); 
         printState("Verbindungsfehler");
+        console.error(e);
     }
 }
 
@@ -84,39 +89,44 @@ function onDisconnected() {
     printState("Verbindung verloren");
 }
 
-// Event Listener für den Connect Button
 if($ID('btnConnect')) {
     $ID('btnConnect').addEventListener('click', connectBLE);
 }
 
-// --- KOMMUNIKATION ---
+// --- KOMMUNIKATION (Thread-Safe) ---
 
-// Hauptfunktion zum Senden von Befehlen
 async function sendDataCmd(cmd) {
     if (!commandChar) return;
+    
+    // Einfacher Mutex: Warte, falls gerade gesendet wird
+    // Das ist extrem wichtig beim Senden der Liste!
+    while(isWriting) {
+        await new Promise(r => setTimeout(r, 20));
+    }
+
     try {
+        isWriting = true;
         console.log(`[TX] ${cmd}`);
         await commandChar.writeValue(new TextEncoder().encode(cmd));
-        // Kleines Delay um den Arduino Buffer nicht zu überfluten
-        await new Promise(r => setTimeout(r, 50)); 
+        // Kleines Delay NACH dem Senden, damit der Arduino Zeit zum Verarbeiten hat
+        await new Promise(r => setTimeout(r, 60)); 
     } catch (e) { 
         console.error("Sende-Fehler:", e); 
+    } finally {
+        isWriting = false;
     }
 }
 
-// Sendet aktuelle Browser-Zeit an Arduino
 function syncTime() {
     const unix = Math.floor(Date.now() / 1000);
     sendDataCmd(`/syncTime?val=${unix}`);
-    console.log(`[SYNC] Zeit gesendet: ${unix}`);
 }
 
-// --- FEATURES & BUTTONS ---
+// --- FEATURES ---
 
 function sendText() {
     var txt = $ID("myLEDText").value;
-    // URL Encoding für Sonderzeichen
-    sendDataCmd("/ledText=" + encodeURIComponent(txt));
+    sendDataCmd("/ledText=" + cleanString(txt));
 }
 
 function toggleYellowFlag() {
@@ -133,12 +143,10 @@ function toggleYellowFlag() {
     }
 }
 
-// Manueller Start (Direkt-Kommando)
 function manualStart(random) {
     const durStr = $ID('duration-input').value;
     const preT = $ID('preStartTime').value;
     
-    // Zeit parsen (HH:MM:SS)
     const parts = durStr.split(':');
     let s = 300;
     if(parts.length === 3) s = (+parts[0])*3600 + (+parts[1])*60 + (+parts[2]);
@@ -146,7 +154,6 @@ function manualStart(random) {
     let rnd = 0;
     if(random) rnd = Math.floor(Math.random() * 30) * 100;
     
-    // Arduino Befehl: /startSequence...
     sendDataCmd(`/startSequence&dur=${s}&rnd=${rnd}&pre=${preT}`);
 }
 
@@ -156,14 +163,13 @@ function loadGameIds() {
     const ids = $ID("myID").value;
     if(!ids) return alert("Bitte Game ID eingeben!");
     
-    // Stoppe alte Intervalle
     if(pollingInterval) clearInterval(pollingInterval);
     
     // Sofort laden
     fetchAndUpload(ids);
     
-    // Dann alle 60 Sekunden aktualisieren (um Liste frisch zu halten)
-    pollingInterval = setInterval(() => fetchAndUpload(ids), 60000); 
+    // Dann alle 2 Minuten aktualisieren
+    pollingInterval = setInterval(() => fetchAndUpload(ids), 120000); 
 }
 
 async function fetchAndUpload(rawIds) {
@@ -171,21 +177,19 @@ async function fetchAndUpload(rawIds) {
     const idList = rawIds.split(',').map(s => s.trim());
     let allSessions = [];
 
-    // 1. Alle IDs abfragen
     for (const id of idList) {
         if(!id) continue;
         const p = id.split('/');
-        // API URL aufbauen
+        // URL ggf. anpassen
         const url = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2F${p[0]}%2F${p[1]}%2F${p[2]}%2Fsession%2F${p[3]||''}`;
         
         try {
             const res = await fetch(url);
             const data = await res.json();
             
-            console.log(`[API RAW]`, data); // Debugging
+            console.log(`[API RAW]`, data);
             
             if(data && data.setup) {
-                // Dauer berechnen
                 let durSec = 300;
                 if(data.setup.duration) {
                     const dp = data.setup.duration.split(':');
@@ -196,23 +200,26 @@ async function fetchAndUpload(rawIds) {
                     name: data.name,
                     startTime: Math.floor(Date.parse(data.setup.startTime) / 1000),
                     duration: durSec,
-                    delay: Math.round((data.setup.startDelay || 0) * 1000) // in ms
+                    delay: Math.round((data.setup.startDelay || 0) * 1000)
                 });
             }
-        } catch (e) { console.error("Fetch Error:", e); }
+        } catch (e) { 
+            console.error("Fetch Error:", e);
+            printState("API Fehler (siehe Konsole)");
+        }
     }
 
-    // 2. Sortieren (Chronologisch)
+    // Sortieren
     allSessions.sort((a, b) => a.startTime - b.startTime);
     
-    // 3. Filtern: Nur Rennen die in der Zukunft liegen (oder max 1 min alt sind)
+    // Filtern: Nur Zukunft oder max 5 Min vergangen
     const now = Math.floor(Date.now() / 1000);
-    const futureRaces = allSessions.filter(s => s.startTime > (now - 60));
+    const futureRaces = allSessions.filter(s => s.startTime > (now - 300));
 
-    // 4. UI Update (Liste anzeigen)
+    // UI Update
     const listEl = $ID('schedule-list');
     if(futureRaces.length === 0) {
-        listEl.innerHTML = "<p>Keine zukünftigen Rennen gefunden.</p>";
+        listEl.innerHTML = "<p>Keine relevanten Rennen gefunden.</p>";
         printState("Keine Rennen.");
     } else {
         listEl.innerHTML = futureRaces.map(s => `
@@ -222,27 +229,26 @@ async function fetchAndUpload(rawIds) {
             </div>
         `).join('');
         
-        // 5. UPLOAD ZUM ARDUINO
+        // --- UPLOAD ZUM ARDUINO ---
         printState(`Sende ${futureRaces.length} Rennen...`);
         
-        // A) Liste leeren
+        // 1. Liste löschen
         await sendDataCmd("/clear");
         
-        // B) Rennen hinzufügen (Limit beachten, Arduino speichert max 10-20)
+        // 2. Upload Loop (Max 10 Rennen)
         let count = 0;
         for(let r of futureRaces) {
-            if(count >= 10) break; // Sicherheitslimit
+            if(count >= 10) break; 
             
-            // Name sicher encoden und kürzen
-            const safeName = encodeURIComponent(r.name).substring(0, 20);
+            const safeName = cleanString(r.name);
             
-            // Befehl: /add?s=START&d=DAUER&r=DELAY&n=NAME
+            // Format: /add?s=UNIX&d=SEC&r=MS&n=NAME
             await sendDataCmd(`/add?s=${r.startTime}&d=${r.duration}&r=${r.delay}&n=${safeName}`);
             
             count++;
         }
         
-        printState("Zeitplan übertragen!");
+        printState("Plan übertragen!");
         console.log(`[BATCH] ${count} Rennen an Arduino gesendet.`);
     }
 }

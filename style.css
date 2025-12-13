@@ -33,7 +33,7 @@ h1 {
   border-bottom: 2px solid var(--primary-color);
   font-weight: bold;
 }
-.section h3 {
+.section h3, summary {
   font-size: 1.2em;
   font-weight: 500;
   color: var(--label-color);
@@ -41,7 +41,25 @@ h1 {
   margin-bottom: 15px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  list-style: none; /* Entfernt Standard-Pfeil in einigen Browsern */
 }
+/* Eigener Pfeil für summary */
+summary::-webkit-details-marker { display: none; }
+summary::after {
+    content: '+'; 
+    float: right; 
+    font-weight: bold;
+}
+details[open] summary::after {
+    content: '-';
+}
+
+.details-content {
+    margin-top: 15px;
+    padding-left: 5px;
+}
+
 .form-row { display: flex; align-items: center; margin-bottom: 15px; gap: 15px; }
 .form-row label { flex: 0 0 100px; font-weight: 500; color: var(--text-color); opacity: 0.9; }
 .form-row .control { flex: 1; }

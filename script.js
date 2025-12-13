@@ -1,4 +1,3 @@
-// BLE UUIDs müssen mit dem Arduino Code übereinstimmen
 const SERVICE_UUID = "19B10000-E8F2-537E-4F6C-D104768A1214".toLowerCase();
 const COMMAND_UUID = "19B10001-E8F2-537E-4F6C-D104768A1214".toLowerCase();
 
@@ -7,81 +6,106 @@ let commandCharacteristic;
 let isYellowFlagActive = false;
 let eventSchedule = [];
 let pollingInterval = null;
-let currentRaceIndex = -1;
+
+// --- UI INIT ---
+$(document).ready(function() {
+    $(".expert").hide();
+    
+    // Toggle Event für Expert Mode
+    $('#expert-toggle').on('change', function() {
+        if(this.checked) $(".expert").slideDown();
+        else $(".expert").slideUp();
+    });
+
+    // Toggle für Manual Start
+    $('#manual-start-toggle').on('change', function() {
+        if(this.checked) $("#manual-start-content").slideDown();
+        else $("#manual-start-content").slideUp();
+    });
+});
+
+// --- HELPER FUNCTIONS (aus Original) ---
+function reMap(val, in_min, in_max, out_min, out_max) {
+    return (val - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+// Spezielle Sende-Funktionen für Mapping
+function sendMatrixSpeed(val) {
+    // Im Original: reMap(this.value, 100, 20, 20, 100) -> invertiert
+    // Aber Slider in HTML ist schon 20-100. Senden wir direkt oder invertiert?
+    // Original Code: /matrixSpeed=' + reMap(this.value, 100, 20, 20, 100)
+    // Wenn Slider 100 ist -> Speed 20 (schnell). Wenn Slider 20 ist -> Speed 100 (langsam).
+    let mapped = reMap(val, 100, 20, 20, 100); 
+    sendCommand('/matrixSpeed=' + Math.round(mapped));
+}
+
+function sendSoundDelay(val) {
+    // UI: 0-6. Arduino erwartet ms (0-600)
+    // Original HTML: /soundDelay=' + reMap(this.value, 0, 6, 0, 600)
+    let delayMs = reMap(val, 0, 6, 0, 600);
+    // UI Anzeige Update (invertiert im Text im Original?)
+    // Original Text: reMap(this.value, 6, 0, 0, -600) -> Das war komisch.
+    // Wir zeigen einfach ms an.
+    document.getElementById('soundDelayNum').innerText = "S.Delay: " + Math.round(delayMs) + "ms";
+    sendCommand('/soundDelay=' + Math.round(delayMs));
+}
 
 // --- BLE Connection ---
 document.getElementById('btnConnect').addEventListener('click', async () => {
     try {
-        console.log('Requesting Bluetooth Device...');
         bleDevice = await navigator.bluetooth.requestDevice({
             filters: [{ name: 'DriftAmpel' }],
             optionalServices: [SERVICE_UUID]
         });
-
         bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
         const server = await bleDevice.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
         commandCharacteristic = await service.getCharacteristic(COMMAND_UUID);
-
         updateConnectionStatus(true);
         document.getElementById('main-content').style.display = 'block';
-        
     } catch (error) {
-        console.error('Verbindung fehlgeschlagen', error);
-        alert('Verbindung fehlgeschlagen: ' + error);
+        alert('Fehler: ' + error);
     }
 });
 
-function onDisconnected(event) {
+function onDisconnected() {
     updateConnectionStatus(false);
     document.getElementById('main-content').style.display = 'none';
     if(pollingInterval) clearInterval(pollingInterval);
 }
 
 function updateConnectionStatus(connected) {
-    const statusDiv = document.getElementById('connectionStatus');
-    if (connected) {
-        statusDiv.textContent = "Verbunden!";
-        statusDiv.style.color = "#2ecc71";
-    } else {
-        statusDiv.textContent = "Getrennt";
-        statusDiv.style.color = "#e74c3c";
-    }
+    const s = document.getElementById('connectionStatus');
+    s.textContent = connected ? "Verbunden!" : "Getrennt";
+    s.style.color = connected ? "#2ecc71" : "#e74c3c";
 }
 
-// --- Commands ---
-async function sendCommand(cmdString) {
+async function sendCommand(cmd) {
     if (!commandCharacteristic) return;
     try {
-        const encoder = new TextEncoder();
-        await commandCharacteristic.writeValue(encoder.encode(cmdString));
-        console.log("Gesendet:", cmdString);
-    } catch (error) {
-        console.error("Sende Fehler:", error);
-    }
+        await commandCharacteristic.writeValue(new TextEncoder().encode(cmd));
+        console.log("Sent:", cmd);
+    } catch (e) { console.error(e); }
 }
 
-function startManualRace() {
+// --- Race Logic ---
+function startManualRace(random) {
     const durStr = document.getElementById('duration-input').value;
     const preT = document.getElementById('preStartTime').value;
-    
-    // Zeit in Sekunden umrechnen
     const parts = durStr.split(':');
     let seconds = 0;
     if(parts.length === 3) seconds = (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
     
-    // 1. Parameter senden
-    sendCommand(`/setRaceParams&dur=${seconds}&rnd=0`);
-    
-    // 2. Countdown Starten (Kurze Verzögerung damit Arduino verarbeitet)
-    setTimeout(() => {
-        sendCommand(`/startCountdown&preT=${preT}`);
-    }, 200);
+    // Random Start Delay
+    let rnd = 0;
+    if(random) rnd = Math.floor(Math.random() * 30) * 100; // 0-3000ms
+
+    sendCommand(`/setRaceParams&dur=${seconds}&rnd=${rnd}`);
+    setTimeout(() => sendCommand(`/startCountdown&preT=${preT}`), 200);
 }
 
 function sendText() {
-    const txt = document.getElementById('myLEDText').value;
-    sendCommand('/ledText=' + encodeURIComponent(txt));
+    sendCommand('/ledText=' + encodeURIComponent(document.getElementById('myLEDText').value));
 }
 
 function toggleYellowFlag() {
@@ -98,98 +122,44 @@ function toggleYellowFlag() {
     }
 }
 
-// --- Driftclub Logik (Browser-basiert) ---
-
+// --- Driftclub API (Minimal) ---
 function loadGameIds() {
     const id = document.getElementById('myID').value;
-    if(!id) return alert("ID eingeben!");
-    
-    // Reset
-    if(pollingInterval) clearInterval(pollingInterval);
-    eventSchedule = [];
-    currentRaceIndex = -1;
-    
+    if(!id) return;
     fetchDriftclubSession(id);
-    
-    // Starte Polling Loop (alle 5 Sekunden)
-    pollingInterval = setInterval(() => {
-        monitorSchedule();
-    }, 5000);
+    pollingInterval = setInterval(monitorSchedule, 5000);
 }
 
 async function fetchDriftclubSession(gameID) {
-    // API Call Simulation für Driftclub Struktur
-    // Hier musst du ggf. die genaue API Logik aus dem alten Script einfügen
-    // Vereinfachtes Beispiel:
-    const idParts = gameID.split('/');
-    // Annahme ID Format: g/GRUPPE/EVENT/SESSION
-    const url = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2F${idParts[0]}%2F${idParts[1]}%2F${idParts[2]}%2Fsession%2F${idParts[3] || ''}`;
-    
+    const p = gameID.split('/');
+    // ACHTUNG: Hier korrekte URL Logik einfügen falls nötig
+    const url = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2F${p[0]}%2F${p[1]}%2F${p[2]}%2Fsession%2F${p[3]||''}`;
     try {
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        // Parsing Logik (wie im alten Script, nur hier in JS)
-        if(data && data.setup) {
-            const startTime = Math.floor(Date.parse(data.setup.startTime) / 1000);
-            
+        const r = await fetch(url);
+        const d = await r.json();
+        if(d && d.setup) {
             eventSchedule.push({
-                name: data.name,
-                startTime: startTime, // Unix Timestamp
-                duration: data.setup.duration, // "HH:MM:SS"
-                laps: data.setup.laps || 0,
-                id: data._id
+                name: d.name,
+                startTime: Math.floor(Date.parse(d.setup.startTime)/1000),
+                duration: d.setup.duration
             });
-            
-            renderSchedule();
+            document.getElementById('schedule-list').innerHTML = `<div>${d.name} - ${new Date(eventSchedule[0].startTime*1000).toLocaleTimeString()}</div>`;
         }
-    } catch(e) {
-        console.log("Fehler beim Laden:", e);
-        document.getElementById('state0').innerHTML = "Fehler API";
-    }
+    } catch(e) { console.log(e); }
 }
 
-function renderSchedule() {
-    const list = document.getElementById('schedule-list');
-    list.innerHTML = eventSchedule.map(s => 
-        `<div class="schedule-item">
-            <span>${s.name}</span>
-            <span>${new Date(s.startTime*1000).toLocaleTimeString()}</span>
-         </div>`
-    ).join('');
-}
-
-// Diese Funktion läuft ständig im Hintergrund im Browser
 function monitorSchedule() {
-    if(eventSchedule.length === 0) return;
-    
-    const now = Math.floor(Date.now() / 1000);
-    
-    // Suche nächstes Rennen
-    const nextRace = eventSchedule.find(r => r.startTime > now);
-    
-    if(nextRace) {
-        const diff = nextRace.startTime - now;
-        document.getElementById('state0').innerHTML = `Nächstes: ${nextRace.name} in ${diff}s`;
-        
-        // Sende Info an Arduino Matrix, wenn es z.B. noch 3 Minuten sind
-        if(diff % 60 === 0 && diff <= 300) { // alle Minuten update
-             sendCommand(`/msg=Start in ${diff/60} min`);
-        }
-        
-        // AUTOMATISCHER START BEFEHL AN ARDUINO
-        // Wir senden den Startbefehl z.B. 15 Sekunden vorher an die Ampel
+    if(!eventSchedule.length) return;
+    const now = Math.floor(Date.now()/1000);
+    const next = eventSchedule.find(r => r.startTime > now);
+    if(next) {
+        const diff = next.startTime - now;
+        document.getElementById('state0').innerHTML = `Start in ${diff}s`;
         if(diff === 15) {
-             // Duration parsen
-             const dParts = nextRace.duration.split(':');
-             const durSec = (+dParts[0])*3600 + (+dParts[1])*60 + (+dParts[2]);
-             
-             sendCommand(`/setRaceParams&dur=${durSec}&rnd=0`);
-             setTimeout(() => {
-                 sendCommand(`/startCountdown&preT=15`); // Startet exakt bei 0
-             }, 500);
+             const dp = next.duration.split(':');
+             const s = (+dp[0])*3600 + (+dp[1])*60 + (+dp[2]);
+             sendCommand(`/setRaceParams&dur=${s}&rnd=0`);
+             setTimeout(() => sendCommand(`/startCountdown&preT=15`), 500);
         }
-    } else {
-        document.getElementById('state0').innerHTML = "Keine anstehenden Rennen.";
     }
 }

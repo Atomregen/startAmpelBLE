@@ -72,6 +72,8 @@ ui.connectBtn.addEventListener('click', async () => {
         updateStatus("Verbinde mit GATT Server...", "loading");
         const server = await bleDevice.gatt.connect();
         
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         updateStatus("Hole Services...", "loading");
         const service = await server.getPrimaryService(SERVICE_UUID);
         
@@ -384,4 +386,5 @@ function startAutoSyncMonitor() {
             }
         });
     }, 1000); // Jede Sekunde prüfen
+
 }

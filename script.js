@@ -114,21 +114,21 @@ function reMap(val, in_min, in_max, out_min, out_max) {
 function writeVolNum(id, val) { $ID(id).innerHTML = "Volume: " + val; }
 function writeDelayNum(id, val) { $ID(id).innerHTML = "S.Delay: " + val + "ms"; }
 
-// --- Event Listeners (Original Mappings) ---
+// --- Event Listeners ---
 
 $ID("connectBleBtn").onclick = connectBLE;
 
-// Toggles (Expert / Manual)
-$ID('expert-toggle').onchange = function() {
-    $ID(document.querySelector(".expert")).style.display = this.checked ? "block" : "none";
-};
-$ID('manual-start-toggle').onchange = function() {
-    $ID("manual-start-content").style.display = this.checked ? "block" : "none";
-};
+// FIX: Settings toggle corrected (uses addEventListener for safety)
+$ID('expert-toggle').addEventListener('change', function() {
+    $ID("expert-settings").style.display = this.checked ? "block" : "none";
+});
 
-// Inputs validation
+$ID('manual-start-toggle').addEventListener('change', function() {
+    $ID("manual-start-content").style.display = this.checked ? "block" : "none";
+});
+
 $ID("duration-input").oninput = function() {
-    // Validierung stark vereinfacht für BLE Kontext
+    // Validation placeholder
 };
 
 // Buttons and Sliders
@@ -163,9 +163,7 @@ $ID("brt_led_matrix").onchange = function() { sendCommand('/brt_matrix=' + this.
 $ID("brt_led_strip").onchange = function() { sendCommand('/brt_strip=' + this.value); };
 $ID("matrixSpeed").onchange = function() { sendCommand('/matrixSpeed=' + this.value); };
 $ID("soundDelay").onchange = function() { 
-    // Original mapping logic reversed for display
-    const val = this.value; // 0-6
-    // Original map: map(val, 0, 6, 0, 600) roughly
+    const val = this.value; 
     sendCommand('/soundDelay=' + (val * 100)); 
     writeDelayNum('soundDelayNum', val * 100);
 };
@@ -195,10 +193,6 @@ $ID("sendEventLinkBtn").onclick = function() {
 };
 
 function driftclub(gameID) {
-    // Simplifizierte API Logik für CORS Problematik
-    // Falls DriftClub CORS blockt, funktioniert das hier nicht auf GitHub Pages!
-    // Wir versuchen es trotzdem wie im Original.
-    
     const idArray = gameID.split('/');
     const group = idArray[1] || '';
     const event = idArray[2] || '';
@@ -209,8 +203,7 @@ function driftclub(gameID) {
     .then(res => res.json())
     .then(session => {
         if (!session.setup) return;
-        // Parse data similar to original script
-        let duration = 0; // seconds
+        let duration = 0; 
         if (session.setup.finishType !== 'laps' && session.setup.duration) {
              const parts = session.setup.duration.split(':');
              duration = (+parts[0])*3600 + (+parts[1])*60 + (+parts[2]);
@@ -234,8 +227,7 @@ function driftclub(gameID) {
 }
 
 async function fetchEventData(eventLink) {
-    // Ähnlich wie oben, verkürzt für Übersicht
-    const apiUrl = `https://driftclub.com/api/event?eventRoute=g/${eventLink}`; // Annahme Pfad
+    const apiUrl = `https://driftclub.com/api/event?eventRoute=g/${eventLink}`; 
     try {
         const res = await fetch(apiUrl);
         const data = await res.json();
@@ -245,11 +237,10 @@ async function fetchEventData(eventLink) {
         const sessionsData = await sessionsRes.json();
         
         const list = sessionsData.sessions.map(s => {
-            // Mapping Logic
             return {
                 name: s.name,
                 startTime: Math.floor(Date.parse(s.setup.startTime) / 1000),
-                duration: 300 // Dummy parsing
+                duration: 300 
             };
         });
         renderSchedule(list);
@@ -272,7 +263,6 @@ function renderSchedule(payload) {
         `;
         list.appendChild(div);
     });
-    // Store globally to access in startRace
     window.currentSchedule = payload;
 }
 
@@ -280,6 +270,6 @@ window.startRace = function(idx) {
     const race = window.currentSchedule[idx];
     sendCommand(`/text=${race.name}`);
     setTimeout(() => {
-        sendCommand(`/mStart&dur=${race.duration}&preT=${10}`); // Default PreStart
+        sendCommand(`/mStart&dur=${race.duration}&preT=${10}`); 
     }, 500);
 };

@@ -1,69 +1,95 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Startampel BLE</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>DR!FT Startampel</h1>
-            <div id="statusIndicator" class="disconnected">● Getrennt</div>
-        </header>
+        <h1>Startampel BLE</h1>
+        
+        <div id="connectOverlay">
+            <button id="connectBtn" class="big-btn">Mit Ampel verbinden</button>
+            <div id="statusMessage">Nicht verbunden</div>
+        </div>
 
-        <section id="connectionSection">
-            <button id="connectBtn">Mit Ampel verbinden (BLE)</button>
-        </section>
-
-        <div id="controlPanel" class="hidden">
-            <section class="card">
-                <h3>Status Monitor</h3>
-                <div id="deviceFeedback">Warte auf Rückmeldung...</div>
-                <button id="yellowFlagBtn">Yellow Flag ON</button>
-            </section>
-
-            <section class="card">
+        <div id="mainUI" class="hidden">
+            <div class="section">
                 <h3>Race Server</h3>
-                <label>Game IDs (Komma getrennt):</label>
-                <input type="text" id="gameIDs" placeholder="g/Gruppe/Event/SessionID">
-                
-                <label>Oder Event Link:</label>
-                <input type="text" id="eventLink" placeholder="Gruppe/EventName">
-                
-                <div class="btn-group">
-                    <button id="fetchScheduleBtn">Zeitplan laden & senden</button>
+                <div class="form-row">
+                    <label>URL:</label>
+                    <div class="control"><input id="myURL" type="text" value="https://driftclub.com" readonly></div>
                 </div>
-                <div id="schedulePreview" class="small-text">Kein Zeitplan geladen.</div>
-            </section>
+                <div class="form-row">
+                    <label>Game ID(s):</label>
+                    <div class="control"><input id="myID" type="text" placeholder="g/group/event/sessionID"></div>
+                </div>
+                <div class="form-row">
+                    <label></label>
+                    <div class="control"><button id="sendIdsBtn">IDs laden & senden</button></div>
+                </div>
+                <div class="form-row">
+                    <label>LED Text:</label>
+                    <div class="control"><input id="myLEDText" type="text"></div>
+                </div>
+                <div class="form-row">
+                    <label></label>
+                    <div class="control"><button id="sendTextBtn">Senden</button></div>
+                </div>
+                <div class="form-row">
+                   <label></label>
+                   <div class="control"><button id="cancelBtn" class="danger">Alles abbrechen</button></div>
+                </div>
 
-            <section class="card">
-                <h3>Manueller Start</h3>
-                <div class="row">
-                    <input type="text" id="manDuration" value="00:05:00" placeholder="HH:MM:SS">
-                    <input type="number" id="manPreStart" value="10" placeholder="Sek">
+                <div class="schedule-container">
+                    <details open>
+                        <summary>Zeitplan (Vorschau)</summary>
+                        <div id="schedule-list">
+                            <p>Noch kein Zeitplan geladen.</p>
+                        </div>
+                    </details>
                 </div>
-                <div class="btn-group">
-                    <button id="manualStartBtn">Start</button>
-                    <button id="cancelBtn" class="danger">Abbruch / Reset</button>
-                </div>
-            </section>
+            </div>
 
-            <section class="card settings">
+            <div class="section">
+                <div class="section-header">
+                    <h3>Manueller Ampelstart</h3>
+                </div>
+                <div class="form-row">
+                    <label>Renndauer:</label>
+                    <div class="control"><input id="duration-input" type="text" value="00:05:00" placeholder="hh:mm:ss"></div>
+                </div>
+                <div class="form-row">
+                    <label>PreStart:</label>
+                    <div class="control"><input id="preStartTime" type="number" value="10"></div>
+                </div>
+                <div class="form-row">
+                    <div class="control button-group">
+                        <button id="mStartBtn">Start</button>
+                        <button id="rndStartBtn">RND Start</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
                 <h3>Einstellungen</h3>
-                <label>LED Text:</label>
-                <div class="row">
-                    <input type="text" id="ledTextInput" maxlength="20">
-                    <button id="setLedTextBtn">Setzen</button>
+                <div class="form-row">
+                    <label>Volume:</label>
+                    <div class="control"><input type="range" id="vol" min="0" max="30"></div>
                 </div>
-
-                <label>Helligkeit Matrix (1-8):</label>
-                <input type="range" id="brtMatrix" min="1" max="8">
-
-                <label>Lautstärke (0-30):</label>
-                <input type="range" id="volMp3" min="0" max="30">
-            </section>
+                <div class="form-row">
+                    <label>Matrix Hell.:</label>
+                    <div class="control"><input type="range" id="brt_led_matrix" min="1" max="8"></div>
+                </div>
+                <div class="form-row">
+                    <label>Grün @ Go:</label>
+                    <div class="control">
+                        <input type="checkbox" id="greenOnOff">
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <script src="script.js"></script>

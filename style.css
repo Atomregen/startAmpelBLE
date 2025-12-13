@@ -6,7 +6,7 @@
   --dark-bg: #202020;
   --border-color: #424242;
   --danger-color: #e74c3c;
-  --success-color: #2ecc71; /* Für den Start Button */
+  --success-color: #2ecc71;
   --input-color: #303030;
 }
 * {
@@ -108,14 +108,12 @@ button.active-state {
   background-color: var(--danger-color);
   transform: translateY(1px);
 }
-/* SPECIFIC COLORS REQUESTED */
 .btn-green {
     background-color: var(--success-color);
 }
 .btn-red {
     background-color: var(--danger-color);
 }
-
 button:disabled, button[disabled] {
   background-color: #444;
   cursor: not-allowed;

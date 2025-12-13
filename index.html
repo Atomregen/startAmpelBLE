@@ -1,80 +1,194 @@
-<!DOCTYPE html>
-<html lang="de">
+<!doctype html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DriftAmpel Controller</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <title>Startampel BLE</title>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <div class="container">
-        <header>
-            <h1><i class="fas fa-flag-checkered"></i> DriftAmpel BLE</h1>
-            <button id="connectBtn" class="btn-primary">
-                <i class="fab fa-bluetooth"></i> Verbinden
-            </button>
-            <div id="status" class="status-bar">Nicht verbunden</div>
-        </header>
-
-        <section class="card">
-            <h2>Manueller Start</h2>
-            <div class="control-group">
-                <label>Renndauer (Min:Sek)</label>
-                <div class="time-inputs">
-                    <input type="number" id="raceMin" value="5" min="0"> m
-                    <input type="number" id="raceSec" value="0" min="0" max="59"> s
-                </div>
-            </div>
-            <div class="control-group">
-                <label>Vorlaufzeit (Sek)</label>
-                <input type="number" id="preTime" value="10" min="5">
-            </div>
-            <button id="manualStartBtn" class="btn-success" disabled>START</button>
-            <button id="cancelBtn" class="btn-danger" disabled>ABBRECHEN</button>
-        </section>
-
-        <section class="card">
-            <h2>DriftClub Zeitplan</h2>
-            <div class="control-group">
-                <input type="text" id="driftClubId" placeholder="Game ID (z.B. g/Gruppe/Event)">
-                <button id="fetchApiBtn" class="btn-secondary">Laden</button>
-            </div>
-            <div id="scheduleList" class="schedule-list">
-                <p class="placeholder">Kein Zeitplan geladen.</p>
-            </div>
-            <div class="auto-mode">
-                <input type="checkbox" id="autoSyncParams">
-                <label for="autoSyncParams">Ampel automatisch bei API-Zeit triggern (Beta)</label>
-            </div>
-        </section>
-
-        <section class="card">
-            <h2>Einstellungen</h2>
-            <div class="control-group">
-                <label>LED Text</label>
-                <div class="input-row">
-                    <input type="text" id="ledText" placeholder="TEXT">
-                    <button id="sendTextBtn" class="btn-small">Senden</button>
-                </div>
-            </div>
-            <div class="control-group">
-                <label>Lautstärke</label>
-                <input type="range" id="volumeSlider" min="0" max="30" value="20">
-            </div>
-            <div class="control-group">
-                <label>Helligkeit Matrix</label>
-                <input type="range" id="matrixBrt" min="0" max="15" value="1">
-            </div>
-            <div class="control-group">
-                <label>Helligkeit Strip</label>
-                <input type="range" id="stripBrt" min="1" max="8" value="4">
-            </div>
-            <button id="syncTimeBtn" class="btn-secondary">Zeit Synchronisieren</button>
-        </section>
+  <div class="container">
+    <h1>Startampel BLE</h1>
+    
+    <div style="text-align: center; margin-bottom: 20px;">
+        <button type="button" id="connectBleBtn" class="btn-primary" style="width: 100%;">
+            Bluetooth Verbinden
+        </button>
+        <div id="bleStatus" style="margin-top: 5px; color: #aaa; font-size: 0.8em;">Getrennt</div>
     </div>
 
-    <script src="script.js"></script>
+    <div class="section">
+      <h3>Race Server</h3>
+      <div class="form-row">
+        <label for="myURL">URL:</label>
+        <div class="control">
+          <input id="myURL" type="url" value="https://driftclub.com" readonly>
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="myID">Game ID(s):</label>
+        <div class="control">
+          <input id="myID" type="text" placeholder="g/gr/ev/1, g/gr/ev/2, ...">
+        </div>
+      </div>
+      <div class="form-row">
+        <label></label>
+        <div class="control"><button type="button" id="sendGameIdsBtn">Game ID(s) senden</button></div>
+      </div>
+      <div class="form-row">
+        <label for="dcEventLink">Event-Link:</label>
+        <div class="control">
+          <input id="dcEventLink" type="text" placeholder="group_path/event_path">
+        </div>
+      </div>
+      <div class="form-row">
+        <label></label>
+        <div class="control"><button type="button" id="sendEventLinkBtn">Event-Link senden</button></div>
+      </div>
+      
+      <div class="form-row">
+        <label></label>
+        <div class="control">
+          <div class="button-group">
+            <button type="button" id="resetInputsBtn">Reset inputs</button>
+            <button type="button" id="cancelBtn" class="btn-red">Alles abbrechen</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row">
+          <label></label>
+          <div class="control">
+              <button type="button" id="yellowFlagToggle">YELLOW FLAG ON</button>
+          </div>
+      </div>
+      
+      <div class="form-row">
+        <label for="myLEDText">LED-Text:</label>
+        <div class="control"><input id="myLEDText" type="text" max="200"></div>
+      </div>
+      <div class="form-row">
+        <label></label>
+        <div class="control"><button type="button" id="sendTextBtn">Senden</button></div>
+      </div>
+
+      <div class="form-row">
+        <label>Status:</label>
+        <div class="control status"><div id="state0">...</div></div>
+      </div>
+      <div class="schedule-container">
+        <details>
+          <summary>Zeitplan</summary>
+          <div id="schedule-list">
+            <p>Noch kein Zeitplan geladen.</p>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Manueller Ampelstart</h3>
+        <label class="switch">
+          <input type="checkbox" id="manual-start-toggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div id="manual-start-content" style="display:none;">
+        <div class="form-row">
+          <label for="duration-input">Renndauer:</label>
+          <div class="control">
+            <input id="duration-input" type="text" style="width: 8em;" placeholder="hh:mm:ss">
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="preStartTime">PreStartTime:</label>
+          <div class="control control-group">
+            <input id="preStartTime" type="number" style="width: 6em;" min="6" value="10">
+            <span>sec</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <label></label>
+          <div class="control">
+            <div class="button-group">
+              <button type="button" id="mStart" class="btn-green">Start</button>
+              <button type="button" id="rndStart">RND Start</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="mStartTime">Startzeit:</label>
+          <div class="control"><input id="mStartTime" type="datetime-local"></div>
+        </div>
+        <div class="form-row">
+          <label></label>
+          <div class="control"><button type="button" id="mStartTimeButton">Senden und Starten</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h3>Einstellungen</h3>
+        <label class="switch">
+          <input type="checkbox" id="expert-toggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="expert" style="display:none;">
+        <div class="form-row">
+          <label for="vol"><div id="volNum">Volume: 20</div></label>
+          <div class="control"><input type="range" id="vol" min="0" max="30" value="20"></div>
+        </div>
+        <div class="form-row">
+          <label for="mp3_Selection">Stimme:</label>
+          <div class="control">
+            <select id="mp3_Selection">
+              <option value="0">weiblich</option>
+              <option value="1">männlich</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label for="Runden_Anzeige">Runden Anzeige:</label>
+          <div class="control">
+            <select id="Runden_Anzeige">
+              <option value="0">gefahrene Runden</option>
+              <option value="1">verbleibende Runden</option>
+              <option value="2">gefahrene Runden/Runden gesamt</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label>Grün @ Go:</label>
+          <div class="control control-group" style="font-size: 0.9em; justify-content: space-between;">
+            <input style="width:1.5em; height: 1.5em;" type="checkbox" id="greenOnOff" checked>
+            <span>aus nach 5s:</span>
+            <input style="width:1.5em; height: 1.5em;" type="checkbox" id="bGreenOffAfter5" checked>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="brt_led_strip">Strip BRT:</label>
+          <div class="control"><input type="range" id="brt_led_strip" min="1" max="8" value="4"></div>
+        </div>
+        <div class="form-row">
+          <label for="brt_led_matrix">Matrix BRT:</label>
+          <div class="control"><input type="range" id="brt_led_matrix" min="1" max="15" value="1"></div>
+        </div>
+        <div class="form-row">
+          <label for="matrixSpeed">Matrix Speed:</label>
+          <div class="control"><input type="range" id="matrixSpeed" min="20" max="100" value="60"></div>
+        </div>
+        <div class="form-row">
+          <label for="soundDelay"><div id="soundDelayNum">S.Delay: 600ms</div></label>
+          <div class="control"><input type="range" id="soundDelay" min="0" max="6" value="0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="script.js"></script>
 </body>
 </html>

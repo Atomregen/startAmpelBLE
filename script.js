@@ -7,77 +7,51 @@ let timeSyncInterval, pollingInterval;
 let isYellowFlagActive = false;
 let scheduledRaceID = null;
 
-// --- INITIALISIERUNG (FIX FÜR REFERENCE ERROR) ---
+// --- Init ---
 $(document).ready(function() {
-    // Verstecke Bereiche standardmäßig
     $("#manual-start-content").hide();
     $(".expert").hide();
-      
-    // Event Handler für Toggle Switches
-    $('#expert-toggle').on('change', function() {
-        if (this.checked) $(".expert").slideDown(); else $(".expert").slideUp();
-    });
-      
-    $('#manual-start-toggle').on('change', function() {
-        if (this.checked) $("#manual-start-content").slideDown(); else $("#manual-start-content").slideUp();
-    });
+    $('#expert-toggle').on('change', function() { if (this.checked) $(".expert").slideDown(); else $(".expert").slideUp(); });
+    $('#manual-start-toggle').on('change', function() { if (this.checked) $("#manual-start-content").slideDown(); else $("#manual-start-content").slideUp(); });
 });
 
-// --- Helper Functions ---
+// --- Helper ---
 function $ID(id) { return document.getElementById(id); }
-
-function reMap(val, in_min, in_max, out_min, out_max) {
-    return (val - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-}
-
+function reMap(val, in_min, in_max, out_min, out_max) { return (val - in_min) * (out_max - out_min) / (in_max - in_min) + out_min; }
 function writeVolNum(id, val) { $ID(id).innerHTML = "Volume: " + val; }
 function writeDelayNum(id, val) { $ID(id).innerHTML = "S.Delay: " + Math.round(val) + "ms"; }
+function printState(msg) { if(msg) $ID("state0").innerHTML = msg; }
 
-function printState(msg) {
-    if(msg) $ID("state0").innerHTML = msg;
-}
-
-// --- BLE Core ---
+// --- BLE ---
 async function connectBLE() {
     try {
-        bleDevice = await navigator.bluetooth.requestDevice({
-            filters: [{ name: 'DriftAmpel' }], optionalServices: [SERVICE_UUID]
-        });
+        bleDevice = await navigator.bluetooth.requestDevice({ filters: [{ name: 'DriftAmpel' }], optionalServices: [SERVICE_UUID] });
         bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
         const server = await bleDevice.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
         commandChar = await service.getCharacteristic(COMMAND_UUID);
         
-        $ID('bleState').innerHTML = "Verbunden";
-        $ID('bleState').style.color = "#4cd137";
-        $ID('main-content').style.display = 'block';
-        $ID('btnConnect').style.display = 'none';
+        $ID('bleState').innerHTML = "Verbunden"; $ID('bleState').style.color = "#4cd137";
+        $ID('main-content').style.display = 'block'; $ID('btnConnect').style.display = 'none';
         
-        // Time Sync Start
         syncTime();
-        timeSyncInterval = setInterval(syncTime, 60000);
+        timeSyncInterval = setInterval(syncTime, 30000); // Alle 30s Sync
         
-    } catch (e) { alert("Verbindung fehlgeschlagen: " + e); }
+    } catch (e) { alert("Fehler: " + e); }
 }
 
 function onDisconnected() {
-    $ID('bleState').innerHTML = "Getrennt";
-    $ID('bleState').style.color = "#e74c3c";
-    $ID('main-content').style.display = 'none';
-    $ID('btnConnect').style.display = 'block';
-    clearInterval(timeSyncInterval);
-    clearInterval(pollingInterval);
+    $ID('bleState').innerHTML = "Getrennt"; $ID('bleState').style.color = "#e74c3c";
+    $ID('main-content').style.display = 'none'; $ID('btnConnect').style.display = 'block';
+    clearInterval(timeSyncInterval); clearInterval(pollingInterval);
 }
 
-// Event Listener für den Connect Button
-if(document.getElementById('btnConnect')) {
-    document.getElementById('btnConnect').addEventListener('click', connectBLE);
-}
+document.getElementById('btnConnect').addEventListener('click', connectBLE);
 
 async function sendDataCmd(cmd) {
     if (!commandChar) return;
     try {
-        console.log("TX:", cmd);
+        console.log(`[BLE TX] ${cmd}`);
         await commandChar.writeValue(new TextEncoder().encode(cmd));
     } catch (e) { console.error(e); }
 }
@@ -85,47 +59,31 @@ async function sendDataCmd(cmd) {
 function syncTime() {
     const unix = Math.floor(Date.now() / 1000);
     sendDataCmd(`/syncTime?val=${unix}`);
+    console.log(`[SYNC] Sende Zeit an Arduino: ${unix}`);
 }
 
 // --- Features ---
-
-function sendText() {
-    var txt = $ID("myLEDText").value;
-    sendDataCmd("/ledText=" + txt);
-}
+function sendText() { sendDataCmd("/ledText=" + $ID("myLEDText").value); }
 
 function toggleYellowFlag() {
     isYellowFlagActive = !isYellowFlagActive;
     const btn = $ID('yellowFlagToggle');
-    if(isYellowFlagActive) {
-        sendDataCmd('/yellowFlagOn');
-        btn.textContent = 'YELLOW FLAG OFF';
-        btn.classList.add('active-state');
-    } else {
-        sendDataCmd('/yellowFlagOff');
-        btn.textContent = 'YELLOW FLAG ON';
-        btn.classList.remove('active-state');
-    }
+    if(isYellowFlagActive) { sendDataCmd('/yellowFlagOn'); btn.textContent = 'YELLOW FLAG OFF'; btn.classList.add('active-state'); }
+    else { sendDataCmd('/yellowFlagOff'); btn.textContent = 'YELLOW FLAG ON'; btn.classList.remove('active-state'); }
 }
 
 function manualStart(random) {
     const durStr = $ID('duration-input').value;
     const preT = $ID('preStartTime').value;
-    
-    // Parse Duration
     const parts = durStr.split(':');
     let s = 300;
     if(parts.length === 3) s = (+parts[0])*3600 + (+parts[1])*60 + (+parts[2]);
-    
     let rnd = 0;
     if(random) rnd = Math.floor(Math.random() * 30) * 100;
-    
-    // Sende Befehl an Arduino
     sendDataCmd(`/startSequence&dur=${s}&rnd=${rnd}&pre=${preT}`);
 }
 
 // --- Driftclub Logic ---
-
 function loadGameIds() {
     const ids = $ID("myID").value;
     if(!ids) return alert("ID eingeben!");
@@ -134,7 +92,6 @@ function loadGameIds() {
     fetchData(ids);
     pollingInterval = setInterval(() => fetchData(ids), 2000);
     printState("Monitoring aktiv...");
-    console.log("--- START MONITORING ---");
 }
 
 async function fetchData(rawIds) {
@@ -150,7 +107,8 @@ async function fetchData(rawIds) {
             const res = await fetch(url);
             const data = await res.json();
             
-            // console.log(`[API RAW] ID ${id}:`, data); 
+            // Console output wie gewünscht
+            console.log(`[API] ID: ${id} | Name: ${data.name} | Start: ${data.setup?.startTime}`);
             
             if(data && data.setup) {
                 let durSec = 300;
@@ -164,16 +122,15 @@ async function fetchData(rawIds) {
                     name: data.name,
                     startTime: Math.floor(Date.parse(data.setup.startTime) / 1000),
                     duration: durSec,
-                    delay: data.setup.startDelay || 0, // HIER IST DAS DELAY (in Sekunden)
+                    delay: data.setup.startDelay || 0,
                     rawTime: data.setup.startTime
                 });
             }
-        } catch (e) { console.error(`Fetch Error ${id}:`, e); }
+        } catch (e) { console.error(`Fetch Error: ${e}`); }
     }
 
     allSessions.sort((a, b) => a.startTime - b.startTime);
     
-    // UI Update (Liste)
     const listEl = $ID('schedule-list');
     if(allSessions.length === 0) listEl.innerHTML = "<p>Keine Daten.</p>";
     else {
@@ -185,29 +142,27 @@ async function fetchData(rawIds) {
         `).join('');
     }
 
-    // Automatik Prüfung
+    // Automatik: Daten an Arduino senden
     const now = Math.floor(Date.now() / 1000);
+    // Suche das nächste Rennen in der Zukunft
     const next = allSessions.find(s => s.startTime > (now - 300));
     
     if (next) {
         const diff = next.startTime - now;
-        printState(`Next: ${next.name} in ${diff}s`);
+        printState(`Nächstes: ${next.name} in ${diff}s`);
         
-        // Sende Befehl wenn neu und noch nicht vorbei
-        if (scheduledRaceID !== next.id && diff > -next.duration) {
-            console.log(`[AUTO-START] Triggering ${next.name} (Delay: ${next.delay}s)`);
+        // Sende NUR, wenn es eine neue Session ID ist
+        // Arduino kümmert sich um den Rest (Timing)
+        if (scheduledRaceID !== next.id) {
+            console.log(`[SENDING] Sende Rennen an Arduino: ${next.name}`);
+            console.log(`--> StartUnix: ${next.startTime}, Duration: ${next.duration}, Delay: ${Math.round(next.delay * 1000)}`);
             
-            // WICHTIG: delay * 1000 für Millisekunden
             const delayMs = Math.round(next.delay * 1000);
+            sendDataCmd(`/setRace?start=${next.startTime}&dur=${next.duration}&rnd=${delayMs}&name=${encodeURIComponent(next.name)}`);
             
-            // NEU: &rnd=Parameter hinzugefügt
-            const cmd = `/setRace?start=${next.startTime}&dur=${next.duration}&rnd=${delayMs}&name=${encodeURIComponent(next.name)}`;
-            
-            sendDataCmd(cmd);
             scheduledRaceID = next.id;
         }
     } else {
         printState("Keine Rennen anstehend.");
     }
 }
-

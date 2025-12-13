@@ -7,11 +7,13 @@ let timeSyncInterval, pollingInterval;
 let isYellowFlagActive = false;
 let scheduledRaceID = null;
 
-// --- Page Init (Original Style) ---
-function onPageLoad() {
+// --- INITIALISIERUNG (FIX FÜR REFERENCE ERROR) ---
+$(document).ready(function() {
+    // Verstecke Bereiche standardmäßig
     $("#manual-start-content").hide();
     $(".expert").hide();
       
+    // Event Handler für Toggle Switches
     $('#expert-toggle').on('change', function() {
         if (this.checked) $(".expert").slideDown(); else $(".expert").slideUp();
     });
@@ -19,9 +21,9 @@ function onPageLoad() {
     $('#manual-start-toggle').on('change', function() {
         if (this.checked) $("#manual-start-content").slideDown(); else $("#manual-start-content").slideUp();
     });
-}
+});
 
-// --- Helper Functions (Original Logic) ---
+// --- Helper Functions ---
 function $ID(id) { return document.getElementById(id); }
 
 function reMap(val, in_min, in_max, out_min, out_max) {
@@ -67,7 +69,10 @@ function onDisconnected() {
     clearInterval(pollingInterval);
 }
 
-document.getElementById('btnConnect').addEventListener('click', connectBLE);
+// Event Listener für den Connect Button
+if(document.getElementById('btnConnect')) {
+    document.getElementById('btnConnect').addEventListener('click', connectBLE);
+}
 
 async function sendDataCmd(cmd) {
     if (!commandChar) return;
@@ -85,7 +90,7 @@ function syncTime() {
 // --- Features ---
 
 function sendText() {
-    var txt = $ID("myLEDText").value; // Raw value, Arduino handles encoding if needed or simple ASCII
+    var txt = $ID("myLEDText").value;
     sendDataCmd("/ledText=" + txt);
 }
 
@@ -115,6 +120,7 @@ function manualStart(random) {
     let rnd = 0;
     if(random) rnd = Math.floor(Math.random() * 30) * 100;
     
+    // Sende Befehl an Arduino
     sendDataCmd(`/startSequence&dur=${s}&rnd=${rnd}&pre=${preT}`);
 }
 
@@ -138,13 +144,14 @@ async function fetchData(rawIds) {
     for (const id of idList) {
         if(!id) continue;
         const p = id.split('/');
+        // URL anpassen falls API anders ist
         const url = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2F${p[0]}%2F${p[1]}%2F${p[2]}%2Fsession%2F${p[3]||''}`;
         
         try {
             const res = await fetch(url);
             const data = await res.json();
             
-            console.log(`[API] ID: ${id}`, data); // Log to Console as requested
+            console.log(`[API] ID: ${id}`, data);
             
             if(data && data.setup) {
                 // Duration parse
@@ -186,7 +193,7 @@ async function fetchData(rawIds) {
         const diff = next.startTime - now;
         printState(`Next: ${next.name} in ${diff}s`);
         
-        // Trigger Logic: Send to Arduino if new
+        // Trigger Logic
         if (scheduledRaceID !== next.id && diff > -next.duration) {
             console.log(`[TRIGGER] Sende Rennen ${next.name} an Ampel`);
             // Format: /setRace?start=UNIX&dur=SEC&name=NAME

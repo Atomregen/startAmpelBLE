@@ -1,59 +1,182 @@
 <!DOCTYPE html>
-<html lang="de">
+<html>
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DriftAmpel Monitor</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <title>Startampel</title>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 </head>
-<body>
-    <div class="container">
-        <h1>DriftAmpel Monitor</h1>
-        
-        <div class="section">
-            <button id="btnConnect" class="connect-btn">Mit Ampel verbinden (BLE)</button>
-            <div id="connectionStatus" class="status">Getrennt</div>
-            <div id="timeSyncStatus" style="text-align:center; font-size:0.8em; color:#888; margin-top:5px;">Warte auf Sync...</div>
+<body onload="onPageLoad()">
+  <div class="container">
+    <h1>Startampel</h1>
+    
+    <div class="section">
+        <div class="form-row">
+            <button type="button" id="btnConnect" class="connect-btn">MIT AMPEL VERBINDEN</button>
         </div>
-
-        <div id="main-content" style="display:none;">
-            <div class="section">
-                <h3>Driftclub API Monitor</h3>
-                <div class="form-row">
-                    <label>Game ID(s):</label>
-                    <div class="control">
-                        <input id="myID" type="text" placeholder="z.B. g/GRUPPE/EVENT/1" value="">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <button onclick="startDriftclubMonitor()">Überwachung starten</button>
-                </div>
-                
-                <div class="status-box">
-                    <div>Nächstes Rennen:</div>
-                    <div id="nextRaceName" style="color:var(--primary-color); font-weight:bold;">-</div>
-                    <div id="nextRaceTime" style="font-size:1.2em;">-</div>
-                    <div id="nextRaceCountdown" style="color:var(--danger-color);">-</div>
-                </div>
-
-                <div class="schedule-container">
-                    <details open>
-                        <summary>Gefundene Sessions (Raw Data in Console)</summary>
-                        <div id="schedule-list"><p>Keine Daten.</p></div>
-                    </details>
-                </div>
-            </div>
-
-            <div class="section">
-                <h3>Manuelle Kontrolle</h3>
-                <div class="button-group">
-                    <button onclick="sendCommand('/cancel')" style="background:var(--danger-color)">ABBRUCH</button>
-                    <button onclick="toggleYellowFlag()" id="btnYellow">Yellow Flag</button>
-                </div>
-            </div>
+        <div class="form-row">
+             <div class="control status"><div id="bleState">Getrennt</div></div>
         </div>
     </div>
-    <script src="script.js"></script>
+
+    <div id="main-content" style="display:none;">
+        <div class="section">
+            <h3>Race Server</h3>
+            <div class="form-row">
+            <label for="myURL">URL:</label>
+            <div class="control">
+                <input id="myURL" type="url" value="https://driftclub.com" readonly>
+            </div>
+            </div>
+            <div class="form-row">
+            <label for="myID">Game ID(s):</label>
+            <div class="control">
+                <input id="myID" type="text" placeholder="g/gr/ev/1, ...">
+            </div>
+            </div>
+            <div class="form-row">
+            <label></label>
+            <div class="control"><button type="button" onclick="loadGameIds()">Game ID(s) senden</button></div>
+            </div>
+            
+            <div class="form-row">
+            <label></label>
+            <div class="control">
+                <div class="button-group">
+                <button type="button" onclick="location.reload()">Reset inputs</button>
+                <button type="button" id="cancel" onclick="sendDataCmd('/cancel')">Alles abbrechen</button>
+                </div>
+            </div>
+            </div>
+
+            <div class="form-row">
+                <label></label>
+                <div class="control">
+                    <button type="button" id="yellowFlagToggle" onclick="toggleYellowFlag()">YELLOW FLAG ON</button>
+                </div>
+            </div>
+            
+            <div class="form-row">
+            <label for="myLEDText">LED-Text:</label>
+            <div class="control"><input id="myLEDText" type="text" max="200" value="DR!FT"></div>
+            </div>
+            <div class="form-row">
+            <label></label>
+            <div class="control"><button type="button" onclick="sendText()">Senden</button></div>
+            </div>
+
+            <div class="form-row">
+            <label>Status:</label>
+            <div class="control status"><div id="state0">...</div></div>
+            </div>
+            <div class="schedule-container">
+            <details>
+                <summary>Zeitplan</summary>
+                <div id="schedule-list">
+                <p>Noch kein Zeitplan geladen.</p>
+                </div>
+            </details>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-header">
+            <h3>Manueller Ampelstart</h3>
+            <label class="switch">
+                <input type="checkbox" id="manual-start-toggle">
+                <span class="slider"></span>
+            </label>
+            </div>
+            <div id="manual-start-content">
+            <div class="form-row">
+                <label for="duration-input">Renndauer:</label>
+                <div class="control">
+                <input id="duration-input" type="text" style="width: 8em;" placeholder="hh:mm:ss" value="00:05:00">
+                </div>
+            </div>
+            <div class="form-row">
+                <label for="preStartTime">PreStartTime:</label>
+                <div class="control control-group">
+                <input id="preStartTime" type="number" style="width: 6em;" min="6" value="15">
+                <span>sec</span>
+                </div>
+            </div>
+            <div class="form-row">
+                <label></label>
+                <div class="control">
+                <div class="button-group">
+                    <button type="button" id="mStart" onclick="manualStart(false)">Start</button>
+                    <button type="button" id="rndStart" onclick="manualStart(true)">RND Start</button>
+                </div>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+            <h3>Einstellungen</h3>
+            <label class="switch">
+                <input type="checkbox" id="expert-toggle">
+                <span class="slider"></span>
+            </label>
+            </div>
+            <div class="expert">
+            <div class="form-row">
+                <label for="vol"><div id="volNum">Volume: 20</div></label>
+                <div class="control"><input type="range" id="vol" min="0" max="30" value="20" onchange="sendDataCmd('/vol=' + this.value); writeVolNum('volNum', this.value)"></div>
+            </div>
+            <div class="form-row">
+                <label for="mp3_Selection">Stimme:</label>
+                <div class="control">
+                <select id="mp3_Selection" onChange="sendDataCmd('/mp3_Selection=' + this.value)">
+                    <option value="0">weiblich</option>
+                    <option value="1">männlich</option>
+                </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label for="Runden_Anzeige">Runden Anzeige:</label>
+                <div class="control">
+                <select id="Runden_Anzeige" onChange="sendDataCmd('/runden_Anzeige=' + this.value)">
+                    <option value="0">gefahrene Runden</option>
+                    <option value="1">verbleibende Runden</option>
+                    <option value="2">gefahrene Runden/Runden gesamt</option>
+                </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label>Grün @ Go:</label>
+                <div class="control control-group" style="font-size: 0.9em; justify-content: space-between;">
+                <input style="width:1.5em; height: 1.5em;" type="checkbox" id="greenOnOff" checked onclick="sendDataCmd('/greenOnOff=' + this.checked)">
+                <span>aus nach 5s:</span>
+                <input style="width:1.5em; height: 1.5em;" type="checkbox" id="bGreenOffAfter5" checked onclick="sendDataCmd('/bGreenOffAfter5=' + this.checked)">
+                </div>
+            </div>
+            <div class="form-row">
+                <label for="brt_led_strip">Strip BRT:</label>
+                <div class="control"><input type="range" id="brt_led_strip" min="1" max="8" value="5" onchange="sendDataCmd('/brt_led_strip=' + this.value)"></div>
+            </div>
+            <div class="form-row">
+                <label for="brt_led_matrix">Matrix BRT:</label>
+                <div class="control"><input type="range" id="brt_led_matrix" min="1" max="8" value="1" onchange="sendDataCmd('/brt_led_matrix=' + this.value)"></div>
+            </div>
+            <div class="form-row">
+                <label for="matrixSpeed">Matrix Speed:</label>
+                <div class="control"><input type="range" id="matrixSpeed" min="20" max="100" value="60" onchange="sendDataCmd('/matrixSpeed=' + reMap(this.value, 100, 20, 20, 100))"></div>
+            </div>
+            <div class="form-row">
+                <label for="soundDelay"><div id="soundDelayNum">S.Delay: 0ms</div></label>
+                <div class="control"><input type="range" id="soundDelay" min="0" max="6" value="6" onchange="sendDataCmd('/soundDelay=' + reMap(this.value, 0, 6, 0, 600)); writeDelayNum('soundDelayNum', reMap(this.value, 6, 0, 0, -600))"></div>
+            </div>
+            </div>
+        </div>
+        <div id="version" style="text-align:center; color:#777; font-size:60%; padding-top:20px;">Ampel-Version: 34.0 (BLE)</div>
+    </div>
+  </div>
+  <script src="script.js"></script>
 </body>
 </html>

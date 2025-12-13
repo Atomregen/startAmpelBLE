@@ -8,7 +8,7 @@ let cmdChar;
 let stateChar;
 let isConnected = false;
 let isYellowFlagActive = false;
-let timeSyncInterval = null; // Variable für den Sync-Timer
+let timeSyncInterval = null;
 
 // UI Helper
 function $ID(id) { return document.getElementById(id); }
@@ -51,8 +51,9 @@ document.addEventListener("DOMContentLoaded", function() {
         const ids = idsString.split(',').map(id => id.trim()).filter(id => id);
         if (ids.length === 0) return;
         
-        collectedSessions = [];
-        totalIdsToProcess = ids.length;
+        // Globale Variablen für den API Prozess
+        window.collectedSessions = [];
+        window.totalIdsToProcess = ids.length;
         printState(`Lade ${ids.length} ID(s)...`);
         ids.forEach(id => driftclub(id));
     };
@@ -62,9 +63,18 @@ document.addEventListener("DOMContentLoaded", function() {
         if (link) fetchEventData(link);
         else printState("Bitte Event-Link eingeben.");
     };
+    
+    // Reset Inputs Button
+    if($ID("resetInputsBtn")) {
+        $ID("resetInputsBtn").onclick = function() {
+            $ID("myID").value = "";
+            $ID("dcEventLink").value = "";
+            $ID("myLEDText").value = "";
+            printState("Inputs zurückgesetzt");
+        };
+    }
 
-    // --- Toggle Logik (Korrigiert) ---
-    // Wir nutzen 'change' events direkt auf den Checkboxen
+    // --- Toggle Logik ---
     if($ID('expert-toggle')) {
         $ID('expert-toggle').addEventListener('change', function() {
             const content = $ID("expert-settings");
@@ -80,9 +90,16 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // --- Settings Change Listeners ---
+    // Diese Listener senden Änderungen an die Ampel.
+    // WICHTIG: Sie sollten nicht feuern, wenn wir die Werte programmatisch per Bluetooth empfangen,
+    // daher prüfen wir oft auf 'isTrusted' oder wir akzeptieren das "Echo".
+    
     $ID("vol").onchange = function() { 
         sendCommand('/vol=' + this.value); 
         writeVolNum('volNum', this.value); 
+    };
+    $ID("mp3_Selection").onchange = function() {
+        sendCommand('/mp3=' + this.value);
     };
     $ID("brt_led_matrix").onchange = function() { sendCommand('/brt_matrix=' + this.value); };
     $ID("brt_led_strip").onchange = function() { sendCommand('/brt_strip=' + this.value); };
@@ -134,7 +151,9 @@ async function connectToDevice(device) {
             await stateChar.startNotifications();
             stateChar.addEventListener('characteristicvaluechanged', (e) => {
                 const dec = new TextDecoder();
-                printState("Ampel: " + dec.decode(e.target.value));
+                const text = dec.decode(e.target.value);
+                // Aufruf der neuen Parsing-Funktion
+                processIncomingData(text);
             });
 
             isConnected = true;
@@ -142,10 +161,14 @@ async function connectToDevice(device) {
             $ID("connectBleBtn").classList.add("btn-green");
             printState("Verbunden!");
             
-            // Sofortige Zeit-Synchro
+            // 1. Zeit-Synchro
             sendTimeSync();
             
-            // Start Auto-Sync (Alle 5 Minuten = 300000 ms)
+            // 2. Einstellungen von Ampel anfordern (NEU)
+            // Wir hoffen, dass der Arduino auf /getConf mit den Werten antwortet.
+            setTimeout(() => sendCommand('/getConf'), 500);
+
+            // Start Auto-Sync (Alle 5 Minuten)
             if(timeSyncInterval) clearInterval(timeSyncInterval);
             timeSyncInterval = setInterval(sendTimeSync, 300000);
             
@@ -165,7 +188,6 @@ function onDisconnected() {
     $ID("connectBleBtn").classList.remove("btn-green");
     printState("Getrennt");
     
-    // Stop Auto-Sync
     if(timeSyncInterval) {
         clearInterval(timeSyncInterval);
         timeSyncInterval = null;
@@ -190,6 +212,60 @@ function sendTimeSync() {
     console.log("Auto-Sync Time sent:", now);
 }
 
+// --- Incoming Data Parser (NEU) ---
+// Diese Funktion analysiert Text von der Ampel und setzt die UI-Elemente
+function processIncomingData(text) {
+    // Zeige Nachricht immer im Status an
+    printState("Ampel: " + text);
+
+    // Wir suchen nach Schlüsselwörtern im Text wie "vol=20", "brt_strip=5" etc.
+    // Format-Annahme: Schlüssel=Wert (egal ob einzeln oder in einer langen Zeile)
+    
+    // Volume: vol=XX
+    let match = text.match(/vol=(\d+)/);
+    if(match) {
+        const val = match[1];
+        if($ID("vol")) {
+            $ID("vol").value = val;
+            writeVolNum('volNum', val);
+        }
+    }
+
+    // Strip Brightness: brt_strip=X
+    match = text.match(/brt_strip=(\d+)/);
+    if(match && $ID("brt_led_strip")) {
+        $ID("brt_led_strip").value = match[1];
+    }
+
+    // Matrix Brightness: brt_matrix=XX
+    match = text.match(/brt_matrix=(\d+)/);
+    if(match && $ID("brt_led_matrix")) {
+        $ID("brt_led_matrix").value = match[1];
+    }
+
+    // Matrix Speed: matrixSpeed=XX
+    match = text.match(/matrixSpeed=(\d+)/);
+    if(match && $ID("matrixSpeed")) {
+        $ID("matrixSpeed").value = match[1];
+    }
+
+    // Sound Delay: soundDelay=XXX (in ms)
+    match = text.match(/soundDelay=(\d+)/);
+    if(match && $ID("soundDelay")) {
+        const ms = parseInt(match[1]);
+        // Slider geht von 0-6, Hardware ist ms (Slider*100)
+        const sliderVal = Math.round(ms / 100);
+        $ID("soundDelay").value = sliderVal;
+        writeDelayNum('soundDelayNum', ms);
+    }
+
+    // Stimme: mp3=X
+    match = text.match(/mp3=(\d+)/);
+    if(match && $ID("mp3_Selection")) {
+        $ID("mp3_Selection").value = match[1];
+    }
+}
+
 // --- Helper Functions ---
 
 function timeToSeconds(timeString) {
@@ -210,8 +286,9 @@ function writeDelayNum(id, val) { $ID(id).innerHTML = "S.Delay: " + val + "ms"; 
 
 // --- API Logic (DriftClub) ---
 
-let collectedSessions = [];
-let totalIdsToProcess = 0;
+// Globale vars am Fenster-Objekt definiert für Sicherheit
+window.collectedSessions = [];
+window.totalIdsToProcess = 0;
 
 function driftclub(gameID) {
     const idArray = gameID.split('/');
@@ -230,7 +307,7 @@ function driftclub(gameID) {
              duration = (+parts[0])*3600 + (+parts[1])*60 + (+parts[2]);
         }
         
-        collectedSessions.push({
+        window.collectedSessions.push({
             name: session.name,
             startTime: Math.floor(Date.parse(session.setup.startTime) / 1000),
             duration: duration,
@@ -239,16 +316,18 @@ function driftclub(gameID) {
     })
     .catch(err => console.error(err))
     .finally(() => {
-        totalIdsToProcess--;
-        if (totalIdsToProcess === 0) {
-            collectedSessions.sort((a, b) => a.startTime - b.startTime);
-            renderSchedule(collectedSessions);
+        window.totalIdsToProcess--;
+        if (window.totalIdsToProcess <= 0) {
+            window.collectedSessions.sort((a, b) => a.startTime - b.startTime);
+            renderSchedule(window.collectedSessions);
         }
     });
 }
 
 async function fetchEventData(eventLink) {
-    const apiUrl = `https://driftclub.com/api/event?eventRoute=g/${eventLink}`; 
+    // Entferne führende/nachfolgende Slashes oder 'g/' falls doppelt
+    const cleanLink = eventLink.replace(/^g\//, '');
+    const apiUrl = `https://driftclub.com/api/event?eventRoute=g/${cleanLink}`; 
     try {
         const res = await fetch(apiUrl);
         const data = await res.json();
@@ -273,7 +352,7 @@ async function fetchEventData(eventLink) {
 function renderSchedule(payload) {
     const list = $ID('schedule-list');
     list.innerHTML = '';
-    if (!payload.length) { list.innerHTML = '<p>Keine Daten.</p>'; return; }
+    if (!payload || !payload.length) { list.innerHTML = '<p>Keine Daten.</p>'; return; }
     
     payload.forEach((session, idx) => {
         const div = document.createElement('div');

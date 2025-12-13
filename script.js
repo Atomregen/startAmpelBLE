@@ -29,7 +29,10 @@ document.getElementById('rndStartBtn').addEventListener('click', manualRndStart)
 // Settings Change Events
 document.getElementById('vol').addEventListener('change', (e) => sendCmd(`/vol=${e.target.value}`));
 document.getElementById('brt_led_matrix').addEventListener('change', (e) => sendCmd(`/brt_led_matrix=${e.target.value}`));
+document.getElementById('brt_led_strip').addEventListener('change', (e) => sendCmd(`/brt_led_strip=${e.target.value}`));
 document.getElementById('greenOnOff').addEventListener('change', (e) => sendCmd(`/greenOnOff=${e.target.checked}`));
+document.getElementById('soundOnOff').addEventListener('change', (e) => sendCmd(`/soundOnOff=${e.target.checked}`));
+document.getElementById('pulseOnOff').addEventListener('change', (e) => sendCmd(`/pulseOnOff=${e.target.checked}`));
 
 
 /**
@@ -114,7 +117,6 @@ function onDisconnect() {
     // Variablen bereinigen
     chars = {};
     server = null;
-    // device behalten wir, um ggf. reconnecten zu können (browserabhängig)
 }
 
 /**
@@ -134,7 +136,6 @@ async function sendCmd(cmd) {
         await chars.cmd.writeValue(enc.encode(cmd));
     } catch (e) {
         console.error("Senden fehlgeschlagen:", e);
-        // Bei Netzwerkfehler UI zurücksetzen
         if (e.message.includes("NetworkError") || e.message.includes("disconnected")) {
             onDisconnect();
         }
@@ -167,8 +168,15 @@ async function loadSettings() {
             document.getElementById('vol').value = json.volume || 20;
         if (document.getElementById('brt_led_matrix'))
             document.getElementById('brt_led_matrix').value = json.brt_led_matrix || 1;
+        if (document.getElementById('brt_led_strip'))
+            document.getElementById('brt_led_strip').value = json.brt_led_strip || 25;
         if (document.getElementById('greenOnOff'))
             document.getElementById('greenOnOff').checked = json.greenLight || false;
+        if (document.getElementById('soundOnOff'))
+            document.getElementById('soundOnOff').checked = json.sound || false;
+        if (document.getElementById('pulseOnOff'))
+            document.getElementById('pulseOnOff').checked = json.pulse || false;
+            
     } catch(e) { 
         console.log("Settings Load Error", e); 
     }
@@ -185,11 +193,9 @@ async function fetchAndSendSchedule() {
     listEl.innerHTML = "<p>Lade Daten...</p>";
 
     for(let id of ids) {
-        // Einfache Fehlerbehandlung bei leerer ID
         if(id.length < 3) continue; 
         
         const parts = id.split('/');
-        // Falls Format falsch, überspringen
         if (parts.length < 4) {
             console.warn("ID Format falsch:", id);
             continue;
@@ -258,7 +264,6 @@ async function uploadScheduleToArduino(sessions) {
         for (let i = 0; i < json.length; i += chunkSize) {
             const chunk = json.substring(i, i + chunkSize);
             await chars.sched.writeValue(new TextEncoder().encode(chunk));
-            // Wichtig: Delay, damit der Arduino Buffer nicht überläuft
             await new Promise(r => setTimeout(r, 50)); 
         }
         

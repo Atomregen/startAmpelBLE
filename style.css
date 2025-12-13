@@ -1,84 +1,80 @@
 :root {
-    --bg-main: #121212;
-    --bg-card: #1e1e1e;
-    --primary: #3b82f6;
-    --danger: #ef4444;
-    --success: #22c55e;
-    --text-main: #e2e8f0;
-    --text-muted: #94a3b8;
-    --border: #333;
+  --bg-color: #262626;
+  --primary-color: #3498db;
+  --text-color: #E0E0E0;
+  --label-color: #FFFFFF;
+  --dark-bg: #202020;
+  --border-color: #424242;
+  --danger-color: #e74c3c;
+  --input-color: #303030;
 }
-
+* { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-    background-color: var(--bg-main);
-    color: var(--text-main);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    margin: 0;
-    padding: 20px;
-    line-height: 1.5;
+  background-color: var(--dark-bg);
+  color: var(--text-color);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  padding: 15px;
 }
-
 .container {
-    max-width: 600px;
-    margin: 0 auto;
+  max-width: 550px;
+  margin: 0 auto;
+  background-color: var(--bg-color);
+  padding: 25px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
 }
-
-header {
-    text-align: center;
-    margin-bottom: 20px;
-    border-bottom: 2px solid var(--primary);
+h1 {
+  text-align: center;
+  color: var(--label-color);
+  margin-bottom: 25px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--primary-color);
+  font-weight: bold;
 }
-
-h1 { margin: 0 0 10px 0; font-size: 1.5rem; }
-h3 { margin-top: 0; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
-
-.hidden { display: none !important; }
-
-.card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 15px;
-    margin-bottom: 15px;
+.section h3 {
+  font-size: 1.2em;
+  font-weight: 500;
+  color: var(--label-color);
+  margin-top: 25px;
+  margin-bottom: 15px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
 }
-
-#statusIndicator {
-    font-weight: bold;
-    font-family: monospace;
-    padding: 5px;
-    border-radius: 4px;
-    background: #333;
-    display: inline-block;
+.form-row { display: flex; align-items: center; margin-bottom: 15px; gap: 15px; }
+.form-row label { flex: 0 0 100px; font-weight: 500; color: var(--text-color); opacity: 0.9; }
+.form-row .control { flex: 1; }
+input, select {
+  background-color: var(--input-color);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px;
+  width: 100%;
+  font-size: 1em;
 }
-.connected { color: var(--success); }
-.disconnected { color: var(--danger); }
-
 button {
-    background-color: var(--primary);
-    color: white;
-    border: none;
-    padding: 12px;
-    border-radius: 6px;
-    width: 100%;
-    font-size: 1rem;
-    cursor: pointer;
-    font-weight: 600;
+  background-color: var(--primary-color);
+  color: var(--label-color);
+  border: none;
+  border-radius: 8px;
+  padding: 12px 15px;
+  font-size: 1em;
+  font-weight: bold;
+  cursor: pointer;
+  width: 100%;
+  display: block;
+  margin-bottom: 5px;
 }
-button:active { opacity: 0.9; }
-button.danger { background-color: var(--danger); }
-
-input[type="text"], input[type="number"] {
-    width: 100%;
-    padding: 10px;
-    margin-bottom: 10px;
-    background: #2d2d2d;
-    border: 1px solid var(--border);
-    color: white;
-    border-radius: 4px;
-    box-sizing: border-box;
+button.danger { background-color: var(--danger-color); }
+button:active { transform: translateY(1px); }
+.button-group { display: flex; gap: 10px; }
+.button-group button { flex: 1; }
+.hidden { display: none; }
+.big-btn { font-size: 1.2em; padding: 20px; }
+#statusMessage { text-align: center; margin-top: 10px; color: #888; }
+.schedule-item { 
+    border-bottom: 1px solid #444; padding: 5px 0; display: flex; justify-content: space-between; font-size: 0.9em; 
 }
-
-.row { display: flex; gap: 10px; }
-.btn-group { display: flex; gap: 10px; margin-top: 10px; }
-.small-text { font-size: 0.85rem; color: var(--text-muted); margin-top: 5px; }
-#deviceFeedback { color: var(--success); font-family: monospace; margin-bottom: 10px; }
+.schedule-item span { margin-right: 10px; }

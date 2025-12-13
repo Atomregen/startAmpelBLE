@@ -1,306 +1,71 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Startampel BLE Control</title>
-  <style>
-    :root { --bg-color: #262626; --primary-color: #3498db; --text-color: #E0E0E0; --dark-bg: #202020; --border-color: #424242; --danger-color: #e74c3c; }
-    body { background-color: var(--dark-bg); color: var(--text-color); font-family: system-ui, sans-serif; padding: 15px; max-width: 600px; margin: 0 auto; }
-    .container { background-color: var(--bg-color); padding: 20px; border-radius: 12px; border: 1px solid var(--border-color); }
-    h1 { text-align: center; border-bottom: 2px solid var(--primary-color); padding-bottom: 10px; }
-    button { background-color: var(--primary-color); color: white; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: bold; margin-bottom: 10px; cursor: pointer; }
-    button:disabled { background-color: #555; cursor: not-allowed; }
-    button.disconnect { background-color: var(--danger-color); }
-    input, select { width: 100%; padding: 10px; margin-bottom: 10px; background: #333; color: white; border: 1px solid #555; border-radius: 5px; box-sizing: border-box;}
-    .status { text-align: center; color: #50fa7b; font-family: monospace; margin-bottom: 15px; padding: 5px; border: 1px solid #555; }
-    .section { border-bottom: 1px solid #444; margin-bottom: 20px; padding-bottom: 10px; }
-    .hidden { display: none; }
-    label { display: block; margin-bottom: 5px; font-size: 0.9em; }
-    .row { display: flex; gap: 10px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Startampel BLE</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="container">
-    <h1>DR!FT Ampel BLE</h1>
-    
-    <div class="status" id="connectionStatus">Nicht verbunden</div>
-    <button id="connectBtn">Mit Ampel verbinden</button>
-    
-    <div id="controls" class="hidden">
-      <div class="section">
-        <h3>Live Status</h3>
-        <div id="deviceStatus" class="status">...</div>
-        <button id="yellowFlagBtn" onclick="toggleYellowFlag()">Yellow Flag ON</button>
-      </div>
+    <div class="container">
+        <header>
+            <h1>DR!FT Startampel</h1>
+            <div id="statusIndicator" class="disconnected">● Getrennt</div>
+        </header>
 
-      <div class="section">
-        <h3>Race Server</h3>
-        <input id="myURL" type="url" value="https://driftclub.com" readonly>
-        <label>Game ID(s) (Komma getrennt):</label>
-        <input id="myID" type="text" placeholder="g/group/event/sessionID">
-        <button onclick="fetchAndSendSchedule()">Zeitplan laden & senden</button>
-        
-        <label>Event-Link:</label>
-        <input id="dcEventLink" type="text" placeholder="group/event">
-        <button onclick="fetchEventData()">Event-Link laden</button>
-      </div>
+        <section id="connectionSection">
+            <button id="connectBtn">Mit Ampel verbinden (BLE)</button>
+        </section>
 
-      <div class="section">
-        <h3>Einstellungen</h3>
-        <label>LED Text:</label>
-        <div class="row">
-          <input id="ledText" type="text" maxlength="20">
-          <button onclick="sendCmd('/ledText='+encodeURIComponent(document.getElementById('ledText').value))">Set</button>
+        <div id="controlPanel" class="hidden">
+            <section class="card">
+                <h3>Status Monitor</h3>
+                <div id="deviceFeedback">Warte auf Rückmeldung...</div>
+                <button id="yellowFlagBtn">Yellow Flag ON</button>
+            </section>
+
+            <section class="card">
+                <h3>Race Server</h3>
+                <label>Game IDs (Komma getrennt):</label>
+                <input type="text" id="gameIDs" placeholder="g/Gruppe/Event/SessionID">
+                
+                <label>Oder Event Link:</label>
+                <input type="text" id="eventLink" placeholder="Gruppe/EventName">
+                
+                <div class="btn-group">
+                    <button id="fetchScheduleBtn">Zeitplan laden & senden</button>
+                </div>
+                <div id="schedulePreview" class="small-text">Kein Zeitplan geladen.</div>
+            </section>
+
+            <section class="card">
+                <h3>Manueller Start</h3>
+                <div class="row">
+                    <input type="text" id="manDuration" value="00:05:00" placeholder="HH:MM:SS">
+                    <input type="number" id="manPreStart" value="10" placeholder="Sek">
+                </div>
+                <div class="btn-group">
+                    <button id="manualStartBtn">Start</button>
+                    <button id="cancelBtn" class="danger">Abbruch / Reset</button>
+                </div>
+            </section>
+
+            <section class="card settings">
+                <h3>Einstellungen</h3>
+                <label>LED Text:</label>
+                <div class="row">
+                    <input type="text" id="ledTextInput" maxlength="20">
+                    <button id="setLedTextBtn">Setzen</button>
+                </div>
+
+                <label>Helligkeit Matrix (1-8):</label>
+                <input type="range" id="brtMatrix" min="1" max="8">
+
+                <label>Lautstärke (0-30):</label>
+                <input type="range" id="volMp3" min="0" max="30">
+            </section>
         </div>
-        
-        <label>Helligkeit Matrix (1-8):</label>
-        <input type="range" min="1" max="8" id="brtMatrix" onchange="sendCmd('/brt_led_matrix='+this.value)">
-        
-        <label>Volume (0-30):</label>
-        <input type="range" min="0" max="30" id="vol" onchange="sendCmd('/vol='+this.value)">
-      </div>
-      
-       <div class="section">
-        <h3>Manueller Start</h3>
-        <div class="row">
-           <input id="manDuration" placeholder="hh:mm:ss" value="00:05:00">
-           <input id="manPre" type="number" value="10" style="width: 60px">
-        </div>
-        <div class="row">
-            <button onclick="manualStart()">Start</button>
-            <button onclick="sendCmd('/cancel')" style="background-color: #e74c3c">Abbruch</button>
-        </div>
-      </div>
     </div>
-  </div>
-
-<script>
-  // UUIDs matching Arduino
-  const SERVICE_UUID = "19B10000-E8F2-537E-4F6C-D104768A1214".toLowerCase();
-  const CHAR_CMD     = "19B10001-E8F2-537E-4F6C-D104768A1214".toLowerCase();
-  const CHAR_SETTING = "19B10002-E8F2-537E-4F6C-D104768A1214".toLowerCase();
-  const CHAR_SCHED   = "19B10003-E8F2-537E-4F6C-D104768A1214".toLowerCase();
-  const CHAR_STATUS  = "19B10004-E8F2-537E-4F6C-D104768A1214".toLowerCase();
-  const CHAR_TIME    = "19B10005-E8F2-537E-4F6C-D104768A1214".toLowerCase();
-
-  let device, server, service;
-  let charCmd, charSet, charSched, charTime;
-  let isYellow = false;
-  let pollInterval = null;
-  let currentSessions = []; // Stores schedule locally for polling
-
-  const connectBtn = document.getElementById('connectBtn');
-  const statusDiv = document.getElementById('connectionStatus');
-  const controlsDiv = document.getElementById('controls');
-
-  connectBtn.addEventListener('click', async () => {
-    try {
-      device = await navigator.bluetooth.requestDevice({
-        filters: [{ name: 'DR!FT Ampel' }],
-        optionalServices: [SERVICE_UUID]
-      });
-
-      device.addEventListener('gattserverdisconnected', onDisconnected);
-      statusDiv.innerText = "Verbinde...";
-      
-      server = await device.gatt.connect();
-      service = await server.getPrimaryService(SERVICE_UUID);
-      
-      charCmd = await service.getCharacteristic(CHAR_CMD);
-      charSet = await service.getCharacteristic(CHAR_SETTING);
-      charSched = await service.getCharacteristic(CHAR_SCHED);
-      charTime = await service.getCharacteristic(CHAR_TIME);
-      
-      // Status Notifications
-      const charStatus = await service.getCharacteristic(CHAR_STATUS);
-      await charStatus.startNotifications();
-      charStatus.addEventListener('characteristicvaluechanged', (event) => {
-        const dec = new TextDecoder();
-        document.getElementById('deviceStatus').innerText = dec.decode(event.target.value);
-      });
-
-      // Sync Time
-      await syncTime();
-      
-      // Load Settings
-      await loadSettings();
-
-      onConnected();
-    } catch (error) {
-      console.error(error);
-      statusDiv.innerText = "Fehler: " + error.message;
-    }
-  });
-
-  function onConnected() {
-    statusDiv.innerText = "Verbunden";
-    statusDiv.style.color = "#50fa7b";
-    connectBtn.style.display = 'none';
-    controlsDiv.classList.remove('hidden');
-    
-    // Start Polling Loop for active races
-    if(pollInterval) clearInterval(pollInterval);
-    pollInterval = setInterval(checkActiveRace, 5000);
-  }
-
-  function onDisconnected() {
-    statusDiv.innerText = "Getrennt";
-    statusDiv.style.color = "#ff5555";
-    connectBtn.style.display = 'block';
-    controlsDiv.classList.add('hidden');
-    if(pollInterval) clearInterval(pollInterval);
-  }
-
-  async function syncTime() {
-    const now = Math.floor(Date.now() / 1000); // Unix Timestamp
-    // Send as uint32 little endian
-    const buffer = new ArrayBuffer(4);
-    new DataView(buffer).setUint32(0, now, true);
-    await charTime.writeValue(buffer);
-  }
-
-  async function sendCmd(cmd) {
-    if(!charCmd) return;
-    const enc = new TextEncoder();
-    await charCmd.writeValue(enc.encode(cmd));
-  }
-
-  async function loadSettings() {
-    const val = await charSet.readValue();
-    const dec = new TextDecoder();
-    const json = JSON.parse(dec.decode(val));
-    
-    document.getElementById('ledText').value = json.LEDText || "";
-    document.getElementById('brtMatrix').value = json.brt_led_matrix || 1;
-    document.getElementById('vol').value = json.volume || 20;
-    isYellow = json.isYellowFlag || false;
-    updateYellowBtn();
-  }
-
-  function toggleYellowFlag() {
-    if(isYellow) sendCmd("/yellowFlagOff");
-    else sendCmd("/yellowFlagOn");
-    isYellow = !isYellow;
-    updateYellowBtn();
-  }
-
-  function updateYellowBtn() {
-    const btn = document.getElementById('yellowFlagBtn');
-    btn.innerText = isYellow ? "Yellow Flag OFF" : "Yellow Flag ON";
-    btn.style.backgroundColor = isYellow ? "#e74c3c" : "#f1c40f";
-    btn.style.color = isYellow ? "white" : "black";
-  }
-
-  // --- Schedule Logic ---
-
-  async function fetchAndSendSchedule() {
-    const ids = document.getElementById('myID').value.split(',');
-    let allSessions = [];
-    
-    document.getElementById('deviceStatus').innerText = "Lade Daten von Driftclub...";
-    
-    for(let id of ids) {
-        id = id.trim();
-        if(!id) continue;
-        // Parsing logic similar to original script
-        const parts = id.split('/');
-        // Assuming format g/GROUP/EVENT/SESSION or direct ID logic
-        // Simplified API Call (Using sessionID directly if possible or path)
-        const apiUrl = `https://driftclub.com/api/session?sessionRoute=%2Fevent%2Fg%2F${parts[1]}%2F${parts[2]}%2Fsession%2F${parts[3]}`;
-        
-        try {
-            const res = await fetch(apiUrl);
-            const data = await res.json();
-            if(data && data.setup) {
-                let dur = data.setup.finishType === 'laps' ? 0 : data.setup.duration; // Use 0 for laps based
-                // Convert duration string to seconds if needed or keep string parsing in C++
-                // Original used HH:MM:SS string.
-                
-                allSessions.push({
-                    name: data.name,
-                    sessionID: data._id,
-                    startTime: Math.floor(new Date(data.setup.startTime).getTime()/1000),
-                    duration: data.setup.duration || "00:00:00",
-                    laps: data.setup.laps || 0,
-                    startDelay: data.setup.startDelay || 0,
-                    path: "RACE"
-                });
-            }
-        } catch(e) { console.error(e); }
-    }
-    
-    if(allSessions.length > 0) {
-        // Sort by time
-        allSessions.sort((a,b) => a.startTime - b.startTime);
-        currentSessions = allSessions; // Save for polling
-        await uploadSchedule(allSessions);
-    } else {
-        alert("Keine Sessions gefunden!");
-    }
-  }
-
-  async function uploadSchedule(sessions) {
-    document.getElementById('deviceStatus').innerText = "Sende Zeitplan...";
-    
-    // Chunked Upload
-    await charSched.writeValue(new TextEncoder().encode("RESET")); // Clear buffer
-    
-    const json = JSON.stringify(sessions);
-    const chunkSize = 100; // Safe chunk size
-    
-    for (let i = 0; i < json.length; i += chunkSize) {
-        const chunk = json.substring(i, i + chunkSize);
-        await charSched.writeValue(new TextEncoder().encode(chunk));
-        // Small delay to prevent congestion
-        await new Promise(r => setTimeout(r, 50)); 
-    }
-    
-    await charSched.writeValue(new TextEncoder().encode("PARSE")); // Finish
-    document.getElementById('deviceStatus').innerText = "Zeitplan gesendet.";
-  }
-
-  // --- Polling Logic (Replaces Arduino Loop Polling) ---
-  async function checkActiveRace() {
-     if(!currentSessions.length) return;
-     
-     const now = Math.floor(Date.now()/1000);
-     // Find active race
-     const activeRace = currentSessions.find(s => 
-        now >= s.startTime && 
-        (s.laps > 0 || (now < s.startTime + parseDuration(s.duration) + 300)) // +5 min buffer
-     );
-     
-     if(activeRace && activeRace.laps > 0) {
-        // Poll Driftclub for Laps
-        try {
-            const res = await fetch(`https://driftclub.com/api/leaderboard/session?sessionID=${activeRace.sessionID}`);
-            const data = await res.json();
-            if(data && data[0] && data[0].overall) {
-                const driven = data[0].overall.drivenLaps || 0;
-                // Send update to Arduino
-                await sendCmd(`/updateLaps=${driven}`);
-                
-                if(data[0].state === 'finished') {
-                    await sendCmd("raceOver");
-                }
-            }
-        } catch(e) { console.log("Poll Error", e); }
-     }
-  }
-
-  function parseDuration(str) {
-    if(!str) return 0;
-    const p = str.split(':');
-    return (+p[0]) * 3600 + (+p[1]) * 60 + (+p[2]);
-  }
-  
-  function manualStart() {
-      const dur = document.getElementById('manDuration').value;
-      const pre = document.getElementById('manPre').value;
-      const seconds = parseDuration(dur);
-      sendCmd(`/mStart&dur=${seconds}&preT=${parseInt(pre)+2}`);
-  }
-</script>
+    <script src="script.js"></script>
 </body>
 </html>

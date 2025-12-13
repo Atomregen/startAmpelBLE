@@ -24,17 +24,28 @@ document.addEventListener("DOMContentLoaded", function() {
     // --- Event Listeners für Buttons ---
     $ID("connectBleBtn").onclick = connectBLE;
     
+    // Manueller Start (Feste Zeit)
     $ID("mStart").onclick = function() {
         const dur = timeToSeconds($ID('duration-input').value);
-        const pre = parseInt($ID('preStartTime').value) + 2; 
-        sendCommand(`/mStart&dur=${dur}&preT=${pre}`);
+        const pre = parseInt($ID('preStartTime').value); 
+        // preT ist der Offset zur aktuellen Zeit. Wir addieren 2s Sicherheitspuffer.
+        sendCommand(`/mStart&dur=${dur}&preT=${pre + 2}`);
+    };
+
+    // RND Start (Zufällige Zeit) - NEU HINZUGEFÜGT
+    $ID("rndStart").onclick = function() {
+        const dur = timeToSeconds($ID('duration-input').value);
+        // Zufallswert zwischen 5 und 15 Sekunden
+        const randomPre = Math.floor(Math.random() * 11) + 5; 
+        printState("RND Start in " + randomPre + "s");
+        sendCommand(`/mStart&dur=${dur}&preT=${randomPre}`);
     };
 
     $ID("cancelBtn").onclick = function() {
         sendCommand('/cancel');
     };
     
-    // Neuer Button: Zeitplan Senden
+    // Zeitplan Senden
     $ID("uploadScheduleBtn").onclick = sendScheduleToAmpel;
 
     $ID("yellowFlagToggle").onclick = function() {
@@ -202,20 +213,18 @@ function sendScheduleToAmpel() {
     if(!isConnected) return printState("Nicht verbunden!");
     if(!currentScheduleData || currentScheduleData.length === 0) return printState("Kein Zeitplan geladen!");
 
-    // Daten minimieren für JSON Übertragung
+    // WICHTIG: Keys müssen n, s, d sein (kurz für BLE Transfer)
     const minimalData = currentScheduleData.map(s => ({
-        name: s.name.substring(0, 20), // Kürzen um Platz zu sparen
-        start: s.startTime,
-        dur: s.duration
+        n: s.name.substring(0, 15), // Namen kürzen
+        s: s.startTime,
+        d: s.duration
     }));
 
     const jsonStr = JSON.stringify(minimalData);
     console.log("Sende Zeitplan:", jsonStr);
     
-    // ACHTUNG: BLE hat Größenlimits. 
-    // Falls der String zu lang ist (>512 bytes), müsste man ihn splitten.
-    // Hier senden wir ihn direkt, da ArduinoBLE Long Writes oft unterstützt.
-    sendCommand("/schedule=" + jsonStr);
+    // Wir nutzen /sched= statt /schedule= um Platz zu sparen
+    sendCommand("/sched=" + jsonStr);
 }
 
 // --- API Logic ---

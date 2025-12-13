@@ -7,7 +7,8 @@
   <link rel="stylesheet" href="style.css">
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 </head>
-<body> <div class="container">
+<body>
+  <div class="container">
     <h1>Startampel</h1>
     
     <div class="section">
@@ -28,6 +29,7 @@
                 <input id="myURL" type="url" value="https://driftclub.com" readonly>
             </div>
             </div>
+            
             <div class="form-row">
             <label for="myID">Game ID(s):</label>
             <div class="control">
@@ -38,8 +40,18 @@
             <label></label>
             <div class="control"><button type="button" onclick="loadGameIds()">Game ID(s) senden</button></div>
             </div>
-            
+
+            <div class="form-row" style="margin-top: 20px; border-top: 1px dashed #444; padding-top: 20px;">
+            <label for="dcEventLink">Event-Link:</label>
+            <div class="control">
+                <input id="dcEventLink" type="text" placeholder="group_path/event_path">
+            </div>
+            </div>
             <div class="form-row">
+            <label></label>
+            <div class="control"><button type="button" onclick="loadEventData()">Event-Link senden</button></div>
+            </div>
+            <div class="form-row" style="margin-top: 20px;">
             <label></label>
             <div class="control">
                 <div class="button-group">
@@ -70,7 +82,7 @@
             <div class="control status"><div id="state0">...</div></div>
             </div>
             <div class="schedule-container">
-            <details>
+            <details open>
                 <summary>Zeitplan</summary>
                 <div id="schedule-list">
                 <p>Noch kein Zeitplan geladen.</p>

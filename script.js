@@ -10,6 +10,9 @@ const UUIDS = {
 let device, server, chars = {};
 let isYellowFlagActive = false;
 
+// WICHTIG: Eine globale Warteschlange für BLE-Befehle
+let bleQueue = Promise.resolve();
+
 // Connect Button Event
 document.getElementById('connectBtn').addEventListener('click', async () => {
     try {
@@ -54,21 +57,30 @@ function onDisconnect() {
     chars = {};
 }
 
-// Ersetzt die originale sendDataCmd Funktion
+// --- NEU: sendDataCmd mit Warteschlange ---
+// Verhindert "GATT operation already in progress" Fehler
 async function sendDataCmd(cmd) {
     if (!chars.cmd) return;
-    try {
-        const enc = new TextEncoder();
-        await chars.cmd.writeValue(enc.encode(cmd));
-        
-        // Lokales Feedback simulieren (wie im Original)
-        var text = cmd.replace("/", "");
-        if (text.startsWith("mStart")) printState("Manueller Start");
-        else if (text.startsWith("rndStart")) printState("Manueller RND Start");
-        else printState(text);
-    } catch (e) {
-        console.error("Senden fehlgeschlagen", e);
-    }
+
+    // Wir hängen den neuen Befehl hinten an die Warteschlange an
+    bleQueue = bleQueue.then(async () => {
+        try {
+            const enc = new TextEncoder();
+            await chars.cmd.writeValue(enc.encode(cmd));
+            
+            // Lokales Feedback simulieren
+            var text = cmd.replace("/", "");
+            if (text.startsWith("mStart")) printState("Manueller Start");
+            else if (text.startsWith("rndStart")) printState("Manueller RND Start");
+            else printState(text);
+        } catch (e) {
+            console.error("Senden fehlgeschlagen für: " + cmd, e);
+            // Optional: Zeige Fehler im Status an, wenn es wichtig ist
+            // printState("Fehler: " + e.message);
+        }
+    });
+
+    return bleQueue;
 }
 
 // Ersetzt loadData() für BLE
@@ -78,9 +90,7 @@ async function loadSettingsFromBLE() {
     try {
         const val = await chars.set.readValue();
         const dec = new TextDecoder();
-        // Null-Terminierung entfernen falls vorhanden
         let jsonStr = dec.decode(val);
-        // Aufräumen falls C++ Müll sendet
         jsonStr = jsonStr.replace(/\0/g, ''); 
         
         const json = JSON.parse(jsonStr);
@@ -150,12 +160,10 @@ function sendText() {
   sendDataCmd("/ledText=" + encodeURIComponent(txt));
 }
 
-// Dummy Funktion da BLE loadData anders regelt, wird aber von body onload aufgerufen
+// Dummy Funktion da BLE loadData anders regelt
 function loadData() {
-    // UI Init (Verstecken etc.)
     $("#manual-start-content").hide();
     $(".expert").hide();
-    // Laden passiert erst nach Connect
 }
 
 function loadFavData() {
@@ -201,7 +209,6 @@ function sendEventLink() {
     else printState("Bitte einen Event-Link eingeben.");
 }
 
-// Fetch Logic angepasst für BLE Verarbeitung
 function driftclub(gameID) {
     const idArray = gameID.split('/');
     const group = idArray[1] || '';
@@ -239,8 +246,6 @@ function driftclub(gameID) {
 async function fetchEventData(eventLink) {
     printState("Verarbeite Event-Link...");
     try {
-        // Simple Parser (Original logic was complex regex, kept simple here)
-        // Wir nehmen an user gibt "group/eventname" ein
         const routeApiUrl = `https://driftclub.com/api/event?eventRoute=/event/g/${eventLink}`;
         
         let response = await fetch(routeApiUrl);
@@ -252,9 +257,7 @@ async function fetchEventData(eventLink) {
         const sessionData = await response.json();
         
         collectedSessions = sessionData.sessions.map(s => {
-             // Extract details (Original used complex findDetailsObject)
-             // Simplified assumption based on API structure
-             const details = s.setup || {}; // Fallback
+             const details = s.setup || {}; 
              let duration = 0;
              if(details.finishType !== 'laps' && details.duration) {
                  const d = details.duration.split(':');
@@ -303,20 +306,17 @@ async function uploadScheduleToBLE(sessions) {
     if (!chars.sched) return;
     printState("Sende Zeitplan an Ampel...");
     try {
-        // Reset Buffer on Arduino
         await chars.sched.writeValue(new TextEncoder().encode("RESET"));
         
         const json = JSON.stringify(sessions);
-        const chunkSize = 100; // Kleine Chunks für BLE
+        const chunkSize = 100; 
         
         for (let i = 0; i < json.length; i += chunkSize) {
             const chunk = json.substring(i, i + chunkSize);
             await chars.sched.writeValue(new TextEncoder().encode(chunk));
-            // Kurze Pause damit Arduino mitkommt
             await new Promise(r => setTimeout(r, 30)); 
         }
         
-        // Trigger Parsing
         await chars.sched.writeValue(new TextEncoder().encode("PARSE"));
         printState("Zeitplan gesendet!");
     } catch (e) {

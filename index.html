@@ -16,7 +16,9 @@
             <div id="connectionStatus" class="status">Nicht verbunden</div>
         </div>
 
-        <div id="main-content" style="display:none;"> <div class="section">
+        <div id="main-content" style="display:none;">
+            
+            <div class="section">
                 <h3>Race Server</h3>
                 <div class="form-row">
                     <label for="myURL">URL:</label>
@@ -32,7 +34,7 @@
                 </div>
                 <div class="form-row">
                     <label></label>
-                    <div class="control"><button type="button" onclick="loadGameIds()">Game ID(s) laden</button></div>
+                    <div class="control"><button type="button" onclick="loadGameIds()">Game ID(s) senden</button></div>
                 </div>
                 
                 <div class="form-row">
@@ -51,53 +53,122 @@
                 </div>
                 
                 <div class="form-row">
-                    <label>Ampel Info:</label>
+                    <label for="myLEDText">LED-Text:</label>
+                    <div class="control"><input id="myLEDText" type="text" max="200" value="DR!FT"></div>
+                </div>
+                <div class="form-row">
+                    <label></label>
+                    <div class="control"><button type="button" onclick="sendText()">Senden</button></div>
+                </div>
+
+                <div class="form-row">
+                    <label>Status:</label>
                     <div class="control status"><div id="state0">Warte...</div></div>
                 </div>
                 
                 <div class="schedule-container">
-                    <details open>
-                        <summary>Zeitplan (Vom Browser gesteuert)</summary>
-                        <div id="schedule-list"><p>Keine Daten.</p></div>
+                    <details>
+                        <summary>Zeitplan</summary>
+                        <div id="schedule-list"><p>Noch kein Zeitplan geladen.</p></div>
                     </details>
                 </div>
             </div>
 
             <div class="section">
                 <div class="section-header">
-                    <h3>Manueller Start</h3>
+                    <h3>Manueller Ampelstart</h3>
+                    <label class="switch">
+                        <input type="checkbox" id="manual-start-toggle" checked>
+                        <span class="slider"></span>
+                    </label>
                 </div>
-                <div class="form-row">
-                    <label>Renndauer:</label>
-                    <div class="control">
-                        <input id="duration-input" type="text" placeholder="hh:mm:ss" value="00:05:00">
+                <div id="manual-start-content">
+                    <div class="form-row">
+                        <label>Renndauer:</label>
+                        <div class="control">
+                            <input id="duration-input" type="text" placeholder="hh:mm:ss" value="00:05:00">
+                        </div>
                     </div>
-                </div>
-                <div class="form-row">
-                    <label>Vorlauf (s):</label>
-                    <div class="control">
-                        <input id="preStartTime" type="number" value="10">
+                    <div class="form-row">
+                        <label>PreStart:</label>
+                        <div class="control control-group">
+                            <input id="preStartTime" type="number" value="10" style="width: 6em;"> <span>sec</span>
+                        </div>
                     </div>
-                </div>
-                <div class="form-row">
-                    <div class="control">
-                        <button type="button" onclick="startManualRace()">Start</button>
+                    <div class="form-row">
+                        <label></label>
+                        <div class="control">
+                            <div class="button-group">
+                                <button type="button" onclick="startManualRace(false)">Start</button>
+                                <button type="button" onclick="startManualRace(true)">RND Start</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div class="section">
-                <h3>Einstellungen</h3>
-                <div class="form-row">
-                    <label>LED Text:</label>
-                    <div class="control"><input id="myLEDText" type="text" value="DR!FT"></div>
+                <div class="section-header">
+                    <h3>Einstellungen</h3>
+                    <label class="switch">
+                        <input type="checkbox" id="expert-toggle">
+                        <span class="slider"></span>
+                    </label>
                 </div>
-                <div class="form-row">
-                    <div class="control"><button onclick="sendText()">Senden</button></div>
-                </div>
-                <div class="form-row">
-                    <label>Lautstärke:</label>
-                    <div class="control"><input type="range" min="0" max="30" onchange="sendCommand('/vol='+this.value)"></div>
+                
+                <div class="expert"> <div class="form-row">
+                        <label><div id="volNum">Volume: 20</div></label>
+                        <div class="control">
+                            <input type="range" id="vol" min="0" max="30" value="20" onchange="sendCommand('/vol='+this.value); document.getElementById('volNum').innerText='Volume: '+this.value">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <label for="mp3_Selection">Stimme:</label>
+                        <div class="control">
+                            <select id="mp3_Selection" onchange="sendCommand('/mp3_Selection=' + this.value)">
+                                <option value="0">weiblich</option>
+                                <option value="1">männlich</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <label>Grün @ Go:</label>
+                        <div class="control control-group" style="justify-content: space-between;">
+                            <div>
+                                <input style="width:1.5em; height: 1.5em;" type="checkbox" id="greenOnOff" checked onclick="sendCommand('/greenOnOff=' + this.checked)">
+                                <span> an</span>
+                            </div>
+                            <div>
+                                <span>aus nach 5s:</span>
+                                <input style="width:1.5em; height: 1.5em;" type="checkbox" id="bGreenOffAfter5" checked onclick="sendCommand('/bGreenOffAfter5=' + this.checked)">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <label>Strip BRT:</label>
+                        <div class="control"><input type="range" id="brt_led_strip" min="1" max="8" value="5" onchange="sendCommand('/brt_led_strip=' + this.value)"></div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <label>Matrix BRT:</label>
+                        <div class="control"><input type="range" id="brt_led_matrix" min="0" max="15" value="1" onchange="sendCommand('/brt_led_matrix=' + this.value)"></div>
+                    </div>
+
+                    <div class="form-row">
+                        <label>Matrix Speed:</label>
+                        <div class="control"><input type="range" id="matrixSpeed" min="20" max="100" value="60" onchange="sendMatrixSpeed(this.value)"></div>
+                    </div>
+
+                    <div class="form-row">
+                        <label><div id="soundDelayNum">S.Delay: 0ms</div></label>
+                        <div class="control">
+                            <input type="range" id="soundDelay" min="0" max="6" value="6" onchange="sendSoundDelay(this.value)">
+                        </div>
+                    </div>
+
                 </div>
             </div>
 

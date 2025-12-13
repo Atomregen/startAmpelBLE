@@ -5,115 +5,177 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Startampel BLE</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 </head>
-<body>
-    <div class="container">
-        <h1>Startampel BLE</h1>
-        
-        <div id="connectOverlay">
-            <button id="connectBtn" class="big-btn">Mit Ampel verbinden</button>
-            <div id="statusMessage">Nicht verbunden</div>
-        </div>
+<body onload="loadData()">
 
-        <div id="mainUI" class="hidden">
-            <div class="section">
-                <h3>Race Server</h3>
-                <div class="form-row">
-                    <label>URL:</label>
-                    <div class="control"><input id="myURL" type="text" value="https://driftclub.com" readonly></div>
-                </div>
-                <div class="form-row">
-                    <label>Game ID(s):</label>
-                    <div class="control"><input id="myID" type="text" placeholder="g/group/event/sessionID"></div>
-                </div>
-                <div class="form-row">
-                    <label></label>
-                    <div class="control"><button id="sendIdsBtn">IDs laden & senden</button></div>
-                </div>
-                <div class="form-row">
-                    <label>LED Text:</label>
-                    <div class="control"><input id="myLEDText" type="text"></div>
-                </div>
-                <div class="form-row">
-                    <label></label>
-                    <div class="control"><button id="sendTextBtn">Senden</button></div>
-                </div>
-                <div class="form-row">
-                   <label></label>
-                   <div class="control"><button id="cancelBtn" class="danger">Alles abbrechen</button></div>
-                </div>
-
-                <div class="schedule-container">
-                    <details open>
-                        <summary>Zeitplan (Vorschau)</summary>
-                        <div id="schedule-list">
-                            <p>Noch kein Zeitplan geladen.</p>
-                        </div>
-                    </details>
-                </div>
-            </div>
-
-            <div class="section">
-                <details>
-                    <summary>Manueller Ampelstart</summary>
-                    <div class="details-content">
-                        <div class="form-row">
-                            <label>Renndauer:</label>
-                            <div class="control"><input id="duration-input" type="text" value="00:05:00" placeholder="hh:mm:ss"></div>
-                        </div>
-                        <div class="form-row">
-                            <label>PreStart:</label>
-                            <div class="control"><input id="preStartTime" type="number" value="10"></div>
-                        </div>
-                        <div class="form-row">
-                            <div class="control button-group">
-                                <button id="mStartBtn">Start</button>
-                                <button id="rndStartBtn">RND Start</button>
-                            </div>
-                        </div>
-                    </div>
-                </details>
-            </div>
-
-            <div class="section">
-                <details>
-                    <summary>Einstellungen</summary>
-                    <div class="details-content">
-                        <div class="form-row">
-                            <label>Volume:</label>
-                            <div class="control"><input type="range" id="vol" min="0" max="30"></div>
-                        </div>
-                        <div class="form-row">
-                            <label>Matrix Hell.:</label>
-                            <div class="control"><input type="range" id="brt_led_matrix" min="1" max="8"></div>
-                        </div>
-                        <div class="form-row">
-                            <label>Strip Hell.:</label>
-                            <div class="control"><input type="range" id="brt_led_strip" min="1" max="100"></div>
-                        </div>
-                        <div class="form-row">
-                            <label>Grün @ Go:</label>
-                            <div class="control">
-                                <input type="checkbox" id="greenOnOff">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <label>Sound:</label>
-                            <div class="control">
-                                <input type="checkbox" id="soundOnOff">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <label>Pulse:</label>
-                            <div class="control">
-                                <input type="checkbox" id="pulseOnOff">
-                            </div>
-                        </div>
-                    </div>
-                </details>
-            </div>
-        </div>
+    <div id="connectOverlay">
+        <h1 style="border:none;">Startampel BLE</h1>
+        <button id="connectBtn" class="big-btn">VERBINDEN</button>
+        <p id="bleStatus" style="color:#888; margin-top:10px;">Bitte klicken um zu starten</p>
     </div>
+
+    <div class="container hidden" id="mainContainer">
+        <h1>Startampel</h1>
+
+        <div class="section">
+            <h3>Race Server</h3>
+            <div class="form-row">
+                <label for="myURL">URL:</label>
+                <div class="control">
+                    <input id="myURL" type="url" value="https://driftclub.com" readonly>
+                </div>
+            </div>
+            <div class="form-row">
+                <label for="myID">Game ID(s):</label>
+                <div class="control">
+                    <input id="myID" type="text" placeholder="g/gr/ev/1, g/gr/ev/2, ...">
+                </div>
+            </div>
+            <div class="form-row">
+                <label></label>
+                <div class="control"><button type="button" onclick="sendGameIds()">Game ID(s) senden</button></div>
+            </div>
+            <div class="form-row">
+                <label for="dcEventLink">Event-Link:</label>
+                <div class="control">
+                    <input id="dcEventLink" type="text" placeholder="group_path/event_path">
+                </div>
+            </div>
+            <div class="form-row">
+                <label></label>
+                <div class="control"><button type="button" onclick="sendEventLink()">Event-Link senden</button></div>
+            </div>
+            
+            <div class="form-row">
+                <label></label>
+                <div class="control">
+                    <div class="button-group">
+                        <button type="button" onclick="loadFavData()">Reset inputs</button>
+                        <button type="button" id="cancel" onclick="handleCancel()">Alles abbrechen</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label></label>
+                <div class="control">
+                    <button type="button" id="yellowFlagToggle" onclick="toggleYellowFlag()">YELLOW FLAG ON</button>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <label for="myLEDText">LED-Text:</label>
+                <div class="control"><input id="myLEDText" type="text" max="200"></div>
+            </div>
+            <div class="form-row">
+                <label></label>
+                <div class="control"><button type="button" onclick="sendText()">Senden</button></div>
+            </div>
+
+            <div class="form-row">
+                <label>Status:</label>
+                <div class="control status"><div id="state0">...</div></div>
+            </div>
+            <div class="schedule-container">
+                <details>
+                    <summary>Zeitplan</summary>
+                    <div id="schedule-list">
+                        <p>Noch kein Zeitplan geladen.</p>
+                    </div>
+                </details>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h3>Manueller Ampelstart</h3>
+                <label class="switch">
+                    <input type="checkbox" id="manual-start-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div id="manual-start-content">
+                <div class="form-row">
+                    <label for="duration-input">Renndauer:</label>
+                    <div class="control">
+                        <input id="duration-input" type="text" style="width: 8em;" placeholder="hh:mm:ss" value="00:05:00">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label for="preStartTime">PreStartTime:</label>
+                    <div class="control control-group">
+                        <input id="preStartTime" type="number" style="width: 6em;" min="6" value="10">
+                        <span>sec</span>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label></label>
+                    <div class="control">
+                        <div class="button-group">
+                            <button type="button" id="mStart" onclick="sendDataCmd('/mStart&dur=' + timeToSeconds($ID('duration-input').value) + '&preT=' + (parseInt($ID('preStartTime').value)))">Start</button>
+                            <button type="button" id="rndStart" onclick="sendDataCmd('/rndStart&dur=' + timeToSeconds($ID('duration-input').value) + '&rnd=' + Math.floor(Math.random() * 30)*100 + '&preT=' + (parseInt($ID('preStartTime').value)))">RND Start</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <h3>Einstellungen</h3>
+                <label class="switch">
+                    <input type="checkbox" id="expert-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="expert">
+                <div class="form-row">
+                    <label for="vol"><div id="volNum">Volume: 25</div></label>
+                    <div class="control"><input type="range" id="vol" min="0" max="30" onchange="sendDataCmd('/vol=' + this.value); writeVolNum('volNum', this.value)"></div>
+                </div>
+                <div class="form-row">
+                    <label for="mp3_Selection">Stimme:</label>
+                    <div class="control">
+                        <select id="mp3_Selection" onChange="sendDataCmd('/mp3_Selection=' + this.value)">
+                            <option value="0">weiblich</option>
+                            <option value="1">männlich</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label for="Runden_Anzeige">Runden Anzeige:</label>
+                    <div class="control">
+                        <select id="Runden_Anzeige" onChange="sendDataCmd('/runden_Anzeige=' + this.value)">
+                            <option value="0">gefahrene Runden</option>
+                            <option value="1">verbleibende Runden</option>
+                            <option value="2">gefahrene Runden/Runden gesamt</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label>Grün @ Go:</label>
+                    <div class="control control-group" style="font-size: 0.9em; justify-content: space-between;">
+                        <input style="width:1.5em; height: 1.5em;" type="checkbox" id="greenOnOff" onclick="sendDataCmd('/greenOnOff=' + this.checked)">
+                        <span>aus nach 5s:</span>
+                        <input style="width:1.5em; height: 1.5em;" type="checkbox" id="bGreenOffAfter5" onclick="sendDataCmd('/bGreenOffAfter5=' + this.checked)">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label for="brt_led_strip">Strip BRT:</label>
+                    <div class="control"><input type="range" id="brt_led_strip" min="1" max="8" onchange="sendDataCmd('/brt_led_strip=' + this.value)"></div>
+                </div>
+                <div class="form-row">
+                    <label for="brt_led_matrix">Matrix BRT:</label>
+                    <div class="control"><input type="range" id="brt_led_matrix" min="1" max="8" onchange="sendDataCmd('/brt_led_matrix=' + this.value)"></div>
+                </div>
+            </div>
+        </div>
+        <div id="version">BLE Version 1.0</div>
+    </div>
+    
     <script src="script.js"></script>
 </body>
 </html>

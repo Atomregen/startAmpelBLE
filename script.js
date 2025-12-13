@@ -55,43 +55,74 @@ ui.connectBtn.addEventListener('click', async () => {
     }
 
     if (!navigator.bluetooth) {
-        alert("Web Bluetooth wird von diesem Browser nicht unterstützt. Bitte nutze Chrome, Edge oder Bluefy.");
+        alert("Browser nicht unterstützt.");
         return;
     }
 
     try {
-        updateStatus("Suche nach DriftAmpel...", "loading");
+        updateStatus("Suche DriftAmpel...", "loading");
         
+        // 1. Gerät auswählen
         bleDevice = await navigator.bluetooth.requestDevice({
-            filters: [{ name: 'DriftAmpel' }],
+            filters: [{ namePrefix: 'DriftAmpel' }], // Prefix erlaubt V2, V3 etc.
             optionalServices: [SERVICE_UUID]
         });
 
         bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
-        updateStatus("Verbinde mit GATT Server...", "loading");
-        const server = await bleDevice.gatt.connect();
-        
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        updateStatus("Hole Services...", "loading");
-        const service = await server.getPrimaryService(SERVICE_UUID);
-        
-        cmdChar = await service.getCharacteristic(CHAR_CMD_UUID);
-        stateChar = await service.getCharacteristic(CHAR_STATE_UUID);
-
-        // Notifications für Status-Updates vom Arduino aktivieren
-        await stateChar.startNotifications();
-        stateChar.addEventListener('characteristicvaluechanged', handleArduinoStatus);
-
-        isConnected = true;
-        onConnected();
+        // 2. Verbindungsversuch mit Retry
+        await connectToDevice(bleDevice);
 
     } catch (error) {
-        console.error("Verbindungsfehler:", error);
+        console.error("Gesamtfehler:", error);
         updateStatus("Fehler: " + error.message, "error");
     }
 });
+
+// Hilfsfunktion für stabilen Verbindungsaufbau
+async function connectToDevice(device) {
+    const maxRetries = 3;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+        try {
+            updateStatus(`Verbinde (Versuch ${attempt + 1})...`, "loading");
+            
+            // Falls noch eine halbe Verbindung hängt, trennen
+            if (device.gatt.connected) {
+                device.gatt.disconnect();
+            }
+
+            const server = await device.gatt.connect();
+            
+            // WICHTIG: Pause für Windows/Android Stack
+            await new Promise(r => setTimeout(r, 1500)); 
+
+            updateStatus("Hole Services...", "loading");
+            const service = await server.getPrimaryService(SERVICE_UUID);
+            
+            cmdChar = await service.getCharacteristic(CHAR_CMD_UUID);
+            stateChar = await service.getCharacteristic(CHAR_STATE_UUID);
+
+            await stateChar.startNotifications();
+            stateChar.addEventListener('characteristicvaluechanged', handleArduinoStatus);
+
+            isConnected = true;
+            onConnected();
+            return; // Erfolg! Raus aus der Schleife
+
+        } catch (error) {
+            console.warn(`Versuch ${attempt + 1} fehlgeschlagen:`, error);
+            attempt++;
+            
+            if (attempt >= maxRetries) {
+                throw new Error("Verbindung nach 3 Versuchen fehlgeschlagen. Bitte Gerät neu starten.");
+            }
+            // Kurze Pause vor nächstem Versuch
+            await new Promise(r => setTimeout(r, 1000));
+        }
+    }
+}
 
 // Verbindung trennen
 function disconnect() {
@@ -388,3 +419,4 @@ function startAutoSyncMonitor() {
     }, 1000); // Jede Sekunde prüfen
 
 }
+

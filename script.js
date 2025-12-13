@@ -9,6 +9,7 @@ let stateChar;
 let isConnected = false;
 let isYellowFlagActive = false;
 let timeSyncInterval = null;
+let currentScheduleData = [];
 
 // UI Helper
 function $ID(id) { return document.getElementById(id); }
@@ -32,6 +33,9 @@ document.addEventListener("DOMContentLoaded", function() {
     $ID("cancelBtn").onclick = function() {
         sendCommand('/cancel');
     };
+    
+    // Neuer Button: Zeitplan Senden
+    $ID("uploadScheduleBtn").onclick = sendScheduleToAmpel;
 
     $ID("yellowFlagToggle").onclick = function() {
         const cmd = isYellowFlagActive ? '/yellowFlagOff' : '/yellowFlagOn';
@@ -63,7 +67,7 @@ document.addEventListener("DOMContentLoaded", function() {
         else printState("Bitte Event-Link eingeben.");
     };
 
-    // --- Toggle Logik für Panels ---
+    // --- Toggle Logik ---
     if($ID('expert-toggle')) {
         $ID('expert-toggle').addEventListener('change', function() {
             const content = $ID("expert-settings");
@@ -78,46 +82,20 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // --- Settings Change Listeners (NEU: Checkboxen & Selects senden jetzt Daten) ---
-    
-    // Volume Slider
-    $ID("vol").onchange = function() { 
-        sendCommand('/vol=' + this.value); 
-        writeVolNum('volNum', this.value); 
-    };
-
-    // LED Helligkeiten & Speed
+    // --- Settings Change Listeners ---
+    $ID("vol").onchange = function() { sendCommand('/vol=' + this.value); writeVolNum('volNum', this.value); };
     $ID("brt_led_matrix").onchange = function() { sendCommand('/brt_matrix=' + this.value); };
     $ID("brt_led_strip").onchange = function() { sendCommand('/brt_strip=' + this.value); };
     $ID("matrixSpeed").onchange = function() { sendCommand('/matrixSpeed=' + this.value); };
-
-    // Sound Delay
     $ID("soundDelay").onchange = function() { 
         const val = this.value; 
         sendCommand('/soundDelay=' + (val * 100)); 
         writeDelayNum('soundDelayNum', val * 100);
     };
-
-    // Stimme (Select)
-    $ID("mp3_Selection").onchange = function() {
-        sendCommand('/voice=' + this.value);
-    };
-
-    // Runden Anzeige (Select)
-    $ID("Runden_Anzeige").onchange = function() {
-        sendCommand('/lapDisp=' + this.value);
-    };
-
-    // Grün @ Go (Checkbox)
-    $ID("greenOnOff").onchange = function() {
-        // Sendet 1 für checked, 0 für unchecked
-        sendCommand('/greenOn=' + (this.checked ? 1 : 0));
-    };
-
-    // Aus nach 5s (Checkbox)
-    $ID("bGreenOffAfter5").onchange = function() {
-        sendCommand('/greenOff5=' + (this.checked ? 1 : 0));
-    };
+    $ID("mp3_Selection").onchange = function() { sendCommand('/voice=' + this.value); };
+    $ID("Runden_Anzeige").onchange = function() { sendCommand('/lapDisp=' + this.value); };
+    $ID("greenOnOff").onchange = function() { sendCommand('/greenOn=' + (this.checked ? 1 : 0)); };
+    $ID("bGreenOffAfter5").onchange = function() { sendCommand('/greenOff5=' + (this.checked ? 1 : 0)); };
 });
 
 // --- Bluetooth Logic ---
@@ -136,7 +114,6 @@ async function connectBLE() {
         });
 
         bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
-        
         await connectToDevice(bleDevice);
 
     } catch (error) {
@@ -161,8 +138,6 @@ async function connectToDevice(device) {
             stateChar.addEventListener('characteristicvaluechanged', (e) => {
                 const dec = new TextDecoder();
                 const msg = dec.decode(e.target.value);
-                
-                // Prüfen ob es eine Settings-Antwort ist
                 if (msg.startsWith("SET:")) {
                     parseSettingsString(msg);
                     printState("Einstellungen geladen");
@@ -180,13 +155,10 @@ async function connectToDevice(device) {
             sendTimeSync();
             
             // Einstellungen vom Arduino abrufen
-            setTimeout(() => {
-                sendCommand("/getSettings");
-            }, 500);
+            setTimeout(() => { sendCommand("/getSettings"); }, 500);
             
-            // Start Auto-Sync (Alle 5 Minuten)
             if(timeSyncInterval) clearInterval(timeSyncInterval);
-            timeSyncInterval = setInterval(sendTimeSync, 300000);
+            timeSyncInterval = setInterval(sendTimeSync, 300000); // 5 Min Sync
             
             return;
         } catch(e) {
@@ -203,11 +175,7 @@ function onDisconnected() {
     $ID("connectBleBtn").innerHTML = "Bluetooth Verbinden";
     $ID("connectBleBtn").classList.remove("btn-green");
     printState("Getrennt");
-    
-    if(timeSyncInterval) {
-        clearInterval(timeSyncInterval);
-        timeSyncInterval = null;
-    }
+    if(timeSyncInterval) clearInterval(timeSyncInterval);
 }
 
 async function sendCommand(cmd) {
@@ -228,68 +196,29 @@ function sendTimeSync() {
     console.log("Auto-Sync Time sent:", now);
 }
 
-// --- Helper Functions ---
+// --- Schedule Logic ---
 
-function timeToSeconds(timeString) {
-  if (!timeString || typeof timeString !== 'string') return 0;
-  const parts = timeString.split(':');
-  if (parts.length !== 3) return 0;
-  const [h, m, s] = parts.map(p => parseInt(p, 10));
-  return h * 3600 + m * 60 + s;
-}
+function sendScheduleToAmpel() {
+    if(!isConnected) return printState("Nicht verbunden!");
+    if(!currentScheduleData || currentScheduleData.length === 0) return printState("Kein Zeitplan geladen!");
 
-function writeVolNum(id, val) { $ID(id).innerHTML = "Volume: " + val; }
-function writeDelayNum(id, val) { $ID(id).innerHTML = "S.Delay: " + val + "ms"; }
+    // Daten minimieren für JSON Übertragung
+    const minimalData = currentScheduleData.map(s => ({
+        name: s.name.substring(0, 20), // Kürzen um Platz zu sparen
+        start: s.startTime,
+        dur: s.duration
+    }));
 
-/**
- * Parst den Settings-String vom Arduino und setzt die UI-Elemente
- * Erwartetes Format: SET:vol=20;voice=0;grn=1;grn5=1;lap=0;str=4;mat=1;spd=60;del=0
- */
-function parseSettingsString(data) {
-    const cleanData = data.replace("SET:", "");
-    const pairs = cleanData.split(';');
+    const jsonStr = JSON.stringify(minimalData);
+    console.log("Sende Zeitplan:", jsonStr);
     
-    pairs.forEach(pair => {
-        const [key, valStr] = pair.split('=');
-        const val = parseInt(valStr, 10);
-        if (isNaN(val)) return;
-
-        switch(key) {
-            case 'vol':
-                $ID("vol").value = val;
-                writeVolNum('volNum', val);
-                break;
-            case 'voice':
-                $ID("mp3_Selection").value = val;
-                break;
-            case 'lap': // lapDisp
-                $ID("Runden_Anzeige").value = val;
-                break;
-            case 'grn': // greenOn
-                $ID("greenOnOff").checked = (val === 1);
-                break;
-            case 'grn5': // greenOff5
-                $ID("bGreenOffAfter5").checked = (val === 1);
-                break;
-            case 'str': // brt_strip
-                $ID("brt_led_strip").value = val;
-                break;
-            case 'mat': // brt_matrix
-                $ID("brt_led_matrix").value = val;
-                break;
-            case 'spd': // matrixSpeed
-                $ID("matrixSpeed").value = val;
-                break;
-            case 'del': // soundDelay
-                // Vom Arduino kommt raw ms (z.B. 200), Slider braucht index (2)
-                $ID("soundDelay").value = val / 100;
-                writeDelayNum('soundDelayNum', val);
-                break;
-        }
-    });
+    // ACHTUNG: BLE hat Größenlimits. 
+    // Falls der String zu lang ist (>512 bytes), müsste man ihn splitten.
+    // Hier senden wir ihn direkt, da ArduinoBLE Long Writes oft unterstützt.
+    sendCommand("/schedule=" + jsonStr);
 }
 
-// --- API Logic (DriftClub) ---
+// --- API Logic ---
 
 let collectedSessions = [];
 let totalIdsToProcess = 0;
@@ -314,8 +243,7 @@ function driftclub(gameID) {
         collectedSessions.push({
             name: session.name,
             startTime: Math.floor(Date.parse(session.setup.startTime) / 1000),
-            duration: duration,
-            preStart: session.setup.startDelay || 10
+            duration: duration
         });
     })
     .catch(err => console.error(err))
@@ -323,6 +251,7 @@ function driftclub(gameID) {
         totalIdsToProcess--;
         if (totalIdsToProcess === 0) {
             collectedSessions.sort((a, b) => a.startTime - b.startTime);
+            currentScheduleData = collectedSessions;
             renderSchedule(collectedSessions);
         }
     });
@@ -345,6 +274,7 @@ async function fetchEventData(eventLink) {
                 duration: 300 
             };
         });
+        currentScheduleData = list;
         renderSchedule(list);
     } catch(e) {
         printState("API Fehler: " + e.message);
@@ -356,22 +286,47 @@ function renderSchedule(payload) {
     list.innerHTML = '';
     if (!payload.length) { list.innerHTML = '<p>Keine Daten.</p>'; return; }
     
-    payload.forEach((session, idx) => {
+    payload.forEach((session) => {
+        const dateObj = new Date(session.startTime * 1000);
+        const timeStr = dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        
         const div = document.createElement('div');
         div.className = 'schedule-item';
         div.innerHTML = `
+            <span class="time">${timeStr}</span>
             <span class="name">${session.name}</span>
-            <button onclick="startRace(${idx})">Start</button>
+            <span class="duration">${session.duration}s</span>
         `;
         list.appendChild(div);
     });
-    window.currentSchedule = payload;
 }
 
-window.startRace = function(idx) {
-    const race = window.currentSchedule[idx];
-    sendCommand(`/text=${race.name}`);
-    setTimeout(() => {
-        sendCommand(`/mStart&dur=${race.duration}&preT=${10}`); 
-    }, 500);
-};
+// --- Helpers ---
+function timeToSeconds(timeString) {
+  if (!timeString) return 0;
+  const parts = timeString.split(':');
+  if (parts.length !== 3) return 0;
+  return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
+}
+function writeVolNum(id, val) { $ID(id).innerHTML = "Volume: " + val; }
+function writeDelayNum(id, val) { $ID(id).innerHTML = "S.Delay: " + val + "ms"; }
+function parseSettingsString(data) {
+    const cleanData = data.replace("SET:", "");
+    const pairs = cleanData.split(';');
+    pairs.forEach(pair => {
+        const [key, valStr] = pair.split('=');
+        const val = parseInt(valStr, 10);
+        if (isNaN(val)) return;
+        switch(key) {
+            case 'vol': $ID("vol").value = val; writeVolNum('volNum', val); break;
+            case 'voice': $ID("mp3_Selection").value = val; break;
+            case 'lap': $ID("Runden_Anzeige").value = val; break;
+            case 'grn': $ID("greenOnOff").checked = (val === 1); break;
+            case 'grn5': $ID("bGreenOffAfter5").checked = (val === 1); break;
+            case 'str': $ID("brt_led_strip").value = val; break;
+            case 'mat': $ID("brt_led_matrix").value = val; break;
+            case 'spd': $ID("matrixSpeed").value = val; break;
+            case 'del': $ID("soundDelay").value = val / 100; writeDelayNum('soundDelayNum', val); break;
+        }
+    });
+}

@@ -8,6 +8,7 @@ let cmdChar;
 let stateChar;
 let isConnected = false;
 let isYellowFlagActive = false;
+let timeSyncInterval = null; // Variable für den Sync-Timer
 
 // UI Helper
 function $ID(id) { return document.getElementById(id); }
@@ -15,6 +16,83 @@ function printState(msg) {
     if($ID("state0")) $ID("state0").innerHTML = msg; 
     if($ID("bleStatus")) $ID("bleStatus").innerText = msg;
 }
+
+// Wartet bis die Seite geladen ist, bevor Events registriert werden
+document.addEventListener("DOMContentLoaded", function() {
+    
+    // --- Event Listeners für Buttons ---
+    $ID("connectBleBtn").onclick = connectBLE;
+    
+    $ID("mStart").onclick = function() {
+        const dur = timeToSeconds($ID('duration-input').value);
+        const pre = parseInt($ID('preStartTime').value) + 2; 
+        sendCommand(`/mStart&dur=${dur}&preT=${pre}`);
+    };
+
+    $ID("cancelBtn").onclick = function() {
+        sendCommand('/cancel');
+    };
+
+    $ID("yellowFlagToggle").onclick = function() {
+        const cmd = isYellowFlagActive ? '/yellowFlagOff' : '/yellowFlagOn';
+        sendCommand(cmd);
+        isYellowFlagActive = !isYellowFlagActive;
+        this.innerText = isYellowFlagActive ? "YELLOW FLAG OFF" : "YELLOW FLAG ON";
+        this.classList.toggle('active-state', isYellowFlagActive);
+    };
+
+    $ID("sendTextBtn").onclick = function() {
+        sendCommand("/text=" + $ID("myLEDText").value);
+    };
+    
+    $ID("sendGameIdsBtn").onclick = function() {
+        const idsString = $ID("myID").value;
+        if (!idsString) return printState("Bitte Game-IDs eingeben.");
+        const ids = idsString.split(',').map(id => id.trim()).filter(id => id);
+        if (ids.length === 0) return;
+        
+        collectedSessions = [];
+        totalIdsToProcess = ids.length;
+        printState(`Lade ${ids.length} ID(s)...`);
+        ids.forEach(id => driftclub(id));
+    };
+
+    $ID("sendEventLinkBtn").onclick = function() {
+        const link = $ID("dcEventLink").value;
+        if (link) fetchEventData(link);
+        else printState("Bitte Event-Link eingeben.");
+    };
+
+    // --- Toggle Logik (Korrigiert) ---
+    // Wir nutzen 'change' events direkt auf den Checkboxen
+    if($ID('expert-toggle')) {
+        $ID('expert-toggle').addEventListener('change', function() {
+            const content = $ID("expert-settings");
+            if(content) content.style.display = this.checked ? "block" : "none";
+        });
+    }
+
+    if($ID('manual-start-toggle')) {
+        $ID('manual-start-toggle').addEventListener('change', function() {
+            const content = $ID("manual-start-content");
+            if(content) content.style.display = this.checked ? "block" : "none";
+        });
+    }
+
+    // --- Settings Change Listeners ---
+    $ID("vol").onchange = function() { 
+        sendCommand('/vol=' + this.value); 
+        writeVolNum('volNum', this.value); 
+    };
+    $ID("brt_led_matrix").onchange = function() { sendCommand('/brt_matrix=' + this.value); };
+    $ID("brt_led_strip").onchange = function() { sendCommand('/brt_strip=' + this.value); };
+    $ID("matrixSpeed").onchange = function() { sendCommand('/matrixSpeed=' + this.value); };
+    $ID("soundDelay").onchange = function() { 
+        const val = this.value; 
+        sendCommand('/soundDelay=' + (val * 100)); 
+        writeDelayNum('soundDelayNum', val * 100);
+    };
+});
 
 // --- Bluetooth Logic ---
 
@@ -47,7 +125,7 @@ async function connectToDevice(device) {
         try {
             printState(`Verbinde (Versuch ${attempt+1})...`);
             const server = await device.gatt.connect();
-            await new Promise(r => setTimeout(r, 1500)); // Wichtig!
+            await new Promise(r => setTimeout(r, 1500)); 
             
             const service = await server.getPrimaryService(SERVICE_UUID);
             cmdChar = await service.getCharacteristic(CHAR_CMD_UUID);
@@ -64,9 +142,12 @@ async function connectToDevice(device) {
             $ID("connectBleBtn").classList.add("btn-green");
             printState("Verbunden!");
             
-            // Sync Time
-            const now = Math.floor(Date.now() / 1000);
-            sendCommand(`/setTime=${now}`);
+            // Sofortige Zeit-Synchro
+            sendTimeSync();
+            
+            // Start Auto-Sync (Alle 5 Minuten = 300000 ms)
+            if(timeSyncInterval) clearInterval(timeSyncInterval);
+            timeSyncInterval = setInterval(sendTimeSync, 300000);
             
             return;
         } catch(e) {
@@ -83,6 +164,12 @@ function onDisconnected() {
     $ID("connectBleBtn").innerHTML = "Bluetooth Verbinden";
     $ID("connectBleBtn").classList.remove("btn-green");
     printState("Getrennt");
+    
+    // Stop Auto-Sync
+    if(timeSyncInterval) {
+        clearInterval(timeSyncInterval);
+        timeSyncInterval = null;
+    }
 }
 
 async function sendCommand(cmd) {
@@ -97,7 +184,13 @@ async function sendCommand(cmd) {
     }
 }
 
-// --- Original Logic Helpers ---
+function sendTimeSync() {
+    const now = Math.floor(Date.now() / 1000);
+    sendCommand(`/setTime=${now}`);
+    console.log("Auto-Sync Time sent:", now);
+}
+
+// --- Helper Functions ---
 
 function timeToSeconds(timeString) {
   if (!timeString || typeof timeString !== 'string') return 0;
@@ -114,83 +207,11 @@ function reMap(val, in_min, in_max, out_min, out_max) {
 function writeVolNum(id, val) { $ID(id).innerHTML = "Volume: " + val; }
 function writeDelayNum(id, val) { $ID(id).innerHTML = "S.Delay: " + val + "ms"; }
 
-// --- Event Listeners ---
-
-$ID("connectBleBtn").onclick = connectBLE;
-
-// FIX: Settings toggle corrected (uses addEventListener for safety)
-$ID('expert-toggle').addEventListener('change', function() {
-    $ID("expert-settings").style.display = this.checked ? "block" : "none";
-});
-
-$ID('manual-start-toggle').addEventListener('change', function() {
-    $ID("manual-start-content").style.display = this.checked ? "block" : "none";
-});
-
-$ID("duration-input").oninput = function() {
-    // Validation placeholder
-};
-
-// Buttons and Sliders
-$ID("mStart").onclick = function() {
-    const dur = timeToSeconds($ID('duration-input').value);
-    const pre = parseInt($ID('preStartTime').value) + 2; // Original logic offset
-    sendCommand(`/mStart&dur=${dur}&preT=${pre}`);
-};
-
-$ID("cancelBtn").onclick = function() {
-    sendCommand('/cancel');
-};
-
-$ID("yellowFlagToggle").onclick = function() {
-    const cmd = isYellowFlagActive ? '/yellowFlagOff' : '/yellowFlagOn';
-    sendCommand(cmd);
-    isYellowFlagActive = !isYellowFlagActive;
-    this.innerText = isYellowFlagActive ? "YELLOW FLAG OFF" : "YELLOW FLAG ON";
-    this.classList.toggle('active-state', isYellowFlagActive);
-};
-
-$ID("sendTextBtn").onclick = function() {
-    sendCommand("/text=" + $ID("myLEDText").value);
-};
-
-// Settings
-$ID("vol").onchange = function() { 
-    sendCommand('/vol=' + this.value); 
-    writeVolNum('volNum', this.value); 
-};
-$ID("brt_led_matrix").onchange = function() { sendCommand('/brt_matrix=' + this.value); };
-$ID("brt_led_strip").onchange = function() { sendCommand('/brt_strip=' + this.value); };
-$ID("matrixSpeed").onchange = function() { sendCommand('/matrixSpeed=' + this.value); };
-$ID("soundDelay").onchange = function() { 
-    const val = this.value; 
-    sendCommand('/soundDelay=' + (val * 100)); 
-    writeDelayNum('soundDelayNum', val * 100);
-};
-
 
 // --- API Logic (DriftClub) ---
 
 let collectedSessions = [];
 let totalIdsToProcess = 0;
-
-$ID("sendGameIdsBtn").onclick = function() {
-    const idsString = $ID("myID").value;
-    if (!idsString) return printState("Bitte Game-IDs eingeben.");
-    const ids = idsString.split(',').map(id => id.trim()).filter(id => id);
-    if (ids.length === 0) return;
-    
-    collectedSessions = [];
-    totalIdsToProcess = ids.length;
-    printState(`Lade ${ids.length} ID(s)...`);
-    ids.forEach(id => driftclub(id));
-};
-
-$ID("sendEventLinkBtn").onclick = function() {
-    const link = $ID("dcEventLink").value;
-    if (link) fetchEventData(link);
-    else printState("Bitte Event-Link eingeben.");
-};
 
 function driftclub(gameID) {
     const idArray = gameID.split('/');

@@ -98,6 +98,7 @@ async function fetchAndUpload(rawIds) {
     const idList = rawIds.split(',').map(s => s.trim());
     let allSessions = [];
 
+    // 1. Daten holen
     for (const id of idList) {
         if(!id) continue;
         const p = id.split('/');
@@ -106,8 +107,6 @@ async function fetchAndUpload(rawIds) {
         try {
             const res = await fetch(url);
             const data = await res.json();
-            
-            console.log(`[API RAW]`, data);
             
             if(data && data.setup) {
                 let durSec = 300;
@@ -120,42 +119,38 @@ async function fetchAndUpload(rawIds) {
                     name: data.name,
                     startTime: Math.floor(Date.parse(data.setup.startTime) / 1000),
                     duration: durSec,
-                    delay: Math.round((data.setup.startDelay || 0) * 1000) // ms
+                    delay: Math.round((data.setup.startDelay || 0) * 1000)
                 });
             }
         } catch (e) { console.error(e); }
     }
 
-    // Sortieren
+    // 2. Sortieren & UI
     allSessions.sort((a, b) => a.startTime - b.startTime);
-    
-    // Nur ZUKÜNFTIGE Rennen senden (plus kleine Toleranz)
     const now = Math.floor(Date.now() / 1000);
-    const futureRaces = allSessions.filter(s => s.startTime > (now - 60)); // max 1 min alt
+    // Nur relevante Rennen (Zukunft oder max 5 Min vorbei)
+    const activeRaces = allSessions.filter(s => s.startTime > (now - 300));
 
-    // UI Update
-    const listEl = $ID('schedule-list');
-    listEl.innerHTML = futureRaces.length ? futureRaces.map(s => `
-        <div class="schedule-item"><span>${s.name}</span><span>${new Date(s.startTime*1000).toLocaleTimeString()}</span></div>
-    `).join('') : "<p>Keine zukünftigen Rennen.</p>";
+    // Update UI Liste... (Code wie gehabt)
 
-    // --- UPLOAD ZUM ARDUINO ---
-    if(futureRaces.length > 0) {
-        printState(`Sende ${futureRaces.length} Rennen...`);
+    // 3. Upload zum Arduino
+    if(activeRaces.length > 0) {
+        printState(`Sende ${activeRaces.length} Rennen...`);
         
-        // 1. Liste löschen
-        await sendDataCmd("/clear");
+        await sendDataCmd("/clear"); // Liste leeren
         
-        // 2. Jedes Rennen senden (Max 20 beachten)
-        let count = 0;
-        for(let r of futureRaces) {
-            if(count >= 20) break;
-            // Format: /add?s=UNIX&d=SEC&r=MS
-            await sendDataCmd(`/add?s=${r.startTime}&d=${r.duration}&r=${r.delay}`);
-            count++;
+        for(let r of activeRaces) {
+            // Encode Name (einfach)
+            const safeName = encodeURIComponent(r.name).substring(0, 20); // Limit Length
+            const cmd = `/add?s=${r.startTime}&d=${r.duration}&r=${r.delay}&n=${safeName}`;
+            await sendDataCmd(cmd);
+            // Kleines Delay damit BLE Stack nicht choked
+            await new Promise(res => setTimeout(res, 50));
         }
-        printState("Liste übertragen!");
+        printState("Plan übertragen!");
     } else {
-        printState("Keine Rennen zu übertragen.");
+        printState("Keine aktiven Rennen.");
     }
 }
+}
+

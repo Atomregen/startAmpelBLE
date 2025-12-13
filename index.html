@@ -54,41 +54,63 @@
             </div>
 
             <div class="section">
-                <div class="section-header">
-                    <h3>Manueller Ampelstart</h3>
-                </div>
-                <div class="form-row">
-                    <label>Renndauer:</label>
-                    <div class="control"><input id="duration-input" type="text" value="00:05:00" placeholder="hh:mm:ss"></div>
-                </div>
-                <div class="form-row">
-                    <label>PreStart:</label>
-                    <div class="control"><input id="preStartTime" type="number" value="10"></div>
-                </div>
-                <div class="form-row">
-                    <div class="control button-group">
-                        <button id="mStartBtn">Start</button>
-                        <button id="rndStartBtn">RND Start</button>
+                <details>
+                    <summary>Manueller Ampelstart</summary>
+                    <div class="details-content">
+                        <div class="form-row">
+                            <label>Renndauer:</label>
+                            <div class="control"><input id="duration-input" type="text" value="00:05:00" placeholder="hh:mm:ss"></div>
+                        </div>
+                        <div class="form-row">
+                            <label>PreStart:</label>
+                            <div class="control"><input id="preStartTime" type="number" value="10"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="control button-group">
+                                <button id="mStartBtn">Start</button>
+                                <button id="rndStartBtn">RND Start</button>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                </details>
             </div>
 
             <div class="section">
-                <h3>Einstellungen</h3>
-                <div class="form-row">
-                    <label>Volume:</label>
-                    <div class="control"><input type="range" id="vol" min="0" max="30"></div>
-                </div>
-                <div class="form-row">
-                    <label>Matrix Hell.:</label>
-                    <div class="control"><input type="range" id="brt_led_matrix" min="1" max="8"></div>
-                </div>
-                <div class="form-row">
-                    <label>Grün @ Go:</label>
-                    <div class="control">
-                        <input type="checkbox" id="greenOnOff">
+                <details>
+                    <summary>Einstellungen</summary>
+                    <div class="details-content">
+                        <div class="form-row">
+                            <label>Volume:</label>
+                            <div class="control"><input type="range" id="vol" min="0" max="30"></div>
+                        </div>
+                        <div class="form-row">
+                            <label>Matrix Hell.:</label>
+                            <div class="control"><input type="range" id="brt_led_matrix" min="1" max="8"></div>
+                        </div>
+                        <div class="form-row">
+                            <label>Strip Hell.:</label>
+                            <div class="control"><input type="range" id="brt_led_strip" min="1" max="100"></div>
+                        </div>
+                        <div class="form-row">
+                            <label>Grün @ Go:</label>
+                            <div class="control">
+                                <input type="checkbox" id="greenOnOff">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label>Sound:</label>
+                            <div class="control">
+                                <input type="checkbox" id="soundOnOff">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label>Pulse:</label>
+                            <div class="control">
+                                <input type="checkbox" id="pulseOnOff">
+                            </div>
+                        </div>
                     </div>
-                </div>
+                </details>
             </div>
         </div>
     </div>

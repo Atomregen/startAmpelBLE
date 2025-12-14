@@ -18,42 +18,55 @@ $(document).ready(function() {
 // --- HELFER ---
 function $ID(id) { return document.getElementById(id); }
 function reMap(val, in_min, in_max, out_min, out_max) { return (val - in_min) * (out_max - out_min) / (in_max - in_min) + out_min; }
-function writeVolNum(id, val) { 
-    $ID(id).innerHTML = "Volume: " + val; 
-    // Lautstärke direkt per JSON senden, wenn Slider bewegt wird
-    sendJsonCmd({cmd: "config", vol: parseInt(val)}); 
-}
+
+// Reine UI-Updates (Senden passiert via sendDataCmd im HTML-Event)
+function writeVolNum(id, val) { $ID(id).innerHTML = "Volume: " + val; }
 function writeDelayNum(id, val) { $ID(id).innerHTML = "S.Delay: " + Math.round(val) + "ms"; }
 function printState(msg) { if(msg) $ID("state0").innerHTML = msg; }
 function cleanString(str) { if(!str) return "Rennen"; return str.replace(/[^a-zA-Z0-9 \-.:]/g, "").substring(0, 20); }
 
-// --- BLE ---
+// --- BLE CORE ---
 async function connectBLE() {
     try {
         printState("Suche Ampel...");
-        bleDevice = await navigator.bluetooth.requestDevice({ filters: [{ name: 'DriftAmpel' }], optionalServices: [SERVICE_UUID] });
+        bleDevice = await navigator.bluetooth.requestDevice({ 
+            filters: [{ name: 'DriftAmpel' }], 
+            optionalServices: [SERVICE_UUID] 
+        });
         bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
         const server = await bleDevice.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
         commandChar = await service.getCharacteristic(COMMAND_UUID);
-        $ID('bleState').innerHTML = "Verbunden"; $ID('bleState').style.color = "#4cd137";
-        $ID('main-content').style.display = 'block'; $ID('btnConnect').style.display = 'none';
+        
+        $ID('bleState').innerHTML = "Verbunden"; 
+        $ID('bleState').style.color = "#4cd137";
+        $ID('main-content').style.display = 'block'; 
+        $ID('btnConnect').style.display = 'none';
+        
         printState("Bereit.");
         syncTime();
         timeSyncInterval = setInterval(syncTime, 60000);
-    } catch (e) { alert("Verbindung fehlgeschlagen: " + e); printState("Verbindungsfehler"); console.error(e); }
+    } catch (e) { 
+        alert("Verbindung fehlgeschlagen: " + e); 
+        printState("Verbindungsfehler"); 
+        console.error(e); 
+    }
 }
 
 function onDisconnected() {
-    $ID('bleState').innerHTML = "Getrennt"; $ID('bleState').style.color = "#e74c3c";
-    $ID('main-content').style.display = 'none'; $ID('btnConnect').style.display = 'block';
-    clearInterval(timeSyncInterval); clearInterval(pollingInterval);
+    $ID('bleState').innerHTML = "Getrennt"; 
+    $ID('bleState').style.color = "#e74c3c";
+    $ID('main-content').style.display = 'none'; 
+    $ID('btnConnect').style.display = 'block';
+    
+    if(timeSyncInterval) clearInterval(timeSyncInterval);
+    if(pollingInterval) clearInterval(pollingInterval);
     printState("Verbindung verloren");
 }
 
 if($ID('btnConnect')) $ID('btnConnect').addEventListener('click', connectBLE);
 
-// Generische Funktion zum Senden von Strings (wird intern genutzt)
+// Interne Funktion zum Senden von Text (JSON String)
 async function sendRawData(cmd) {
     if (!commandChar) return;
     while(isWriting) { await new Promise(r => setTimeout(r, 20)); }
@@ -62,34 +75,95 @@ async function sendRawData(cmd) {
         console.log(`[TX] ${cmd}`);
         await commandChar.writeValue(new TextEncoder().encode(cmd));
         await new Promise(r => setTimeout(r, 60)); 
-    } catch (e) { console.error("Sende-Fehler:", e); } finally { isWriting = false; }
+    } catch (e) { 
+        console.error("Sende-Fehler:", e); 
+        printState("Send Error");
+    } finally { 
+        isWriting = false; 
+    }
 }
 
-// NEU: Wrapper für JSON Befehle
+// Wrapper für JSON Objekte
 async function sendJsonCmd(obj) {
     const jsonStr = JSON.stringify(obj);
     await sendRawData(jsonStr);
 }
 
+// --- KOMPATIBILITÄT: Alte String-Befehle in JSON wandeln ---
+// Diese Funktion wird von den HTML-Buttons (onclick) aufgerufen
+async function sendDataCmd(cmd) {
+    if(!cmd) return;
+
+    // Falls schon JSON (beginnt mit {), direkt senden
+    if (typeof cmd === 'string' && cmd.trim().startsWith('{')) {
+        return sendRawData(cmd);
+    }
+
+    console.log("Legacy Command:", cmd);
+    let jsonObj = null;
+
+    // Mapping der Befehle aus deiner index.html
+    if (cmd.startsWith("/cancel")) {
+        jsonObj = {cmd: "cancel"};
+    }
+    else if (cmd.startsWith("/vol=")) {
+        jsonObj = {cmd: "config", vol: parseInt(cmd.substring(5))};
+    }
+    else if (cmd.startsWith("/mp3_Selection=")) {
+        // "0" oder "1" -> zu int oder bool
+        jsonObj = {cmd: "config", mp3_Selection: parseInt(cmd.substring(15))};
+    }
+    else if (cmd.startsWith("/runden_Anzeige=")) {
+        jsonObj = {cmd: "config", runden_Anzeige: parseInt(cmd.substring(16))};
+    }
+    else if (cmd.startsWith("/greenOnOff=")) {
+        jsonObj = {cmd: "config", greenOnOff: (cmd.substring(12) === 'true')};
+    }
+    else if (cmd.startsWith("/bGreenOffAfter5=")) {
+        jsonObj = {cmd: "config", bGreenOffAfter5: (cmd.substring(17) === 'true')};
+    }
+    else if (cmd.startsWith("/brt_led_strip=")) {
+        jsonObj = {cmd: "config", brt_led_strip: parseInt(cmd.substring(15))};
+    }
+    else if (cmd.startsWith("/brt_led_matrix=")) {
+        jsonObj = {cmd: "config", brt_led_matrix: parseInt(cmd.substring(16))};
+    }
+    else if (cmd.startsWith("/matrixSpeed=")) {
+        jsonObj = {cmd: "config", matrixSpeed: parseInt(cmd.substring(13))};
+    }
+    else if (cmd.startsWith("/soundDelay=")) {
+        jsonObj = {cmd: "config", soundDelay: parseInt(cmd.substring(12))};
+    }
+    // Falls unbekannt, versuche es roh zu senden (Fallback)
+    
+    if (jsonObj) {
+        await sendJsonCmd(jsonObj);
+    } else {
+        await sendRawData(cmd);
+    }
+}
+
+// --- FEATURES ---
+
 function syncTime() { 
     const unix = Math.floor(Date.now() / 1000); 
-    // Neues Format: {"cmd":"sync", "time": 12345678}
     sendJsonCmd({cmd: "sync", time: unix});
     console.log(`[SYNC] ${unix}`); 
 }
 
-// --- FEATURES ---
 function sendText() { 
-    // Neues Format: {"cmd":"config", "ledText": "MEIN TEXT"}
-    sendJsonCmd({cmd: "config", ledText: cleanString($ID("myLEDText").value)}); 
+    const txt = cleanString($ID("myLEDText").value);
+    sendJsonCmd({cmd: "config", ledText: txt}); 
 }
 
 function toggleYellowFlag() {
     isYellowFlagActive = !isYellowFlagActive;
     const btn = $ID('yellowFlagToggle');
-    // Neues Format: {"cmd":"config", "yellowFlag": true/false}
+    
+    // JSON Befehl senden
     sendJsonCmd({cmd: "config", yellowFlag: isYellowFlagActive});
     
+    // UI Update
     if(isYellowFlagActive) { 
         btn.textContent = 'YELLOW FLAG OFF'; 
         btn.classList.add('active-state'); 
@@ -99,10 +173,9 @@ function toggleYellowFlag() {
     }
 }
 
-// NEU: JSON Struktur für Manuellen Start
 function manualStart(random) {
     const durStr = $ID('duration-input').value;
-    const preT = parseInt($ID('preStartTime').value) || 5;
+    const preT = parseInt($ID('preStartTime').value) || 15;
     
     const parts = durStr.split(':');
     let s = 300;
@@ -111,20 +184,20 @@ function manualStart(random) {
     let rnd = 0;
     if(random) rnd = Math.floor(Math.random() * 30) * 100;
 
-    // Erstelle das JSON Objekt
     const payload = {
         cmd: "start",
-        type: "man",     // Kennung für manuell
-        time: preT,      // Bei Manuell: Vorlaufzeit in Sekunden
-        dur: s,          // Dauer in Sekunden
-        rnd: rnd,        // Zufall in ms
-        name: "Manual"   // Fester Name
+        type: "man",     
+        time: preT,      // Manuell = Vorlaufzeit
+        dur: s,          
+        rnd: rnd,        
+        name: "Manual"   
     };
 
     sendJsonCmd(payload);
 }
 
 // --- DRIFTCLUB AUTOMATIK ---
+
 function loadGameIds() {
     const ids = $ID("myID").value;
     if(!ids) return alert("Bitte Game ID eingeben!");
@@ -237,21 +310,20 @@ async function updateScheduleUI(races) {
         
         printState(`Sende ${races.length} Rennen...`);
         
-        // 1. Liste auf dem Controller leeren (Falls du "clear" im Arduino implementiert hast)
-        // Falls nicht, könnte man "cancel" nutzen oder den Arduino so anpassen, dass er "clear" versteht.
+        // Erst Plan leeren
         await sendJsonCmd({cmd: "clear"});
         
         let count = 0;
         for(let r of races) {
-            if(count >= 10) break; 
+            if(count >= 10) break; // Schutz vor zu vielen Daten
             
-            // NEU: JSON Struktur für Auto-Start (Timestamp Modus)
+            // Auto-Start Payload (Timestamp Modus)
             const payload = {
                 cmd: "start",
-                type: "auto",           // Kennung für Automatik
-                time: r.startTime,      // Hier: UNIX Timestamp
-                dur: r.duration,        // Dauer in Sekunden
-                rnd: r.delay,           // Delay in ms
+                type: "auto",           
+                time: r.startTime,      // Timestamp
+                dur: r.duration,        
+                rnd: r.delay,           
                 name: cleanString(r.name)
             };
 

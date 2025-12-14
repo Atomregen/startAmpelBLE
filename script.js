@@ -26,6 +26,7 @@ function printState(msg) { if(msg) $ID("state0").innerHTML = msg; }
 function cleanString(str) { if(!str) return "Rennen"; return str.replace(/[^a-zA-Z0-9 \-.:]/g, "").substring(0, 20); }
 
 // --- BLE CORE ---
+// --- BLE CORE ---
 async function connectBLE() {
     try {
         printState("Suche Ampel...");
@@ -37,19 +38,94 @@ async function connectBLE() {
         const server = await bleDevice.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
         commandChar = await service.getCharacteristic(COMMAND_UUID);
+
+        // --- NEU: Auf Daten von der Ampel hören (Notifications) ---
+        await commandChar.startNotifications();
+        commandChar.addEventListener('characteristicvaluechanged', handleIncomingData);
+        // ---------------------------------------------------------
         
         $ID('bleState').innerHTML = "Verbunden"; 
         $ID('bleState').style.color = "#4cd137";
         $ID('main-content').style.display = 'block'; 
         $ID('btnConnect').style.display = 'none';
         
-        printState("Bereit.");
+        printState("Bereit & Synchronisiert.");
+        
+        // Zeit sofort senden
         syncTime();
         timeSyncInterval = setInterval(syncTime, 60000);
+        
     } catch (e) { 
         alert("Verbindung fehlgeschlagen: " + e); 
         printState("Verbindungsfehler"); 
         console.error(e); 
+    }
+}
+
+// --- NEU: Verarbeitet Daten, die von der Ampel kommen ---
+function handleIncomingData(event) {
+    const value = event.target.value;
+    const decoder = new TextDecoder('utf-8');
+    const text = decoder.decode(value);
+    console.log("[RX] ", text);
+
+    try {
+        const data = JSON.parse(text);
+
+        // Wenn es ein Konfigurations-Sync Paket ist
+        if (data.cmd === "syncConf") {
+            console.log("Synchronisiere UI mit Ampel-Werten...");
+
+            // 1. LED Text
+            if(data.ledText) $ID("myLEDText").value = data.ledText;
+
+            // 2. Lautstärke (Slider + Text Label)
+            if(data.vol !== undefined) {
+                $ID("vol").value = data.vol;
+                writeVolNum('volNum', data.vol);
+            }
+
+            // 3. Einstellungen (Checkboxen & Selects)
+            if(data.mp3_Selection !== undefined) $ID("mp3_Selection").value = data.mp3_Selection;
+            if(data.greenOnOff !== undefined) $ID("greenOnOff").checked = data.greenOnOff;
+            if(data.bGreenOffAfter5 !== undefined) $ID("bGreenOffAfter5").checked = data.bGreenOffAfter5;
+
+            // 4. Helligkeit & Speed
+            if(data.brt_led_strip !== undefined) $ID("brt_led_strip").value = data.brt_led_strip;
+            if(data.brt_led_matrix !== undefined) $ID("brt_led_matrix").value = data.brt_led_matrix;
+            if(data.matrixSpeed !== undefined) {
+                // Umrechnung umkehren (Logic aus HTML: reMap(val, 100, 20, 20, 100))
+                // Da reMap linear ist, setzen wir einfach den Wert. 
+                // Achtung: Visuell könnte es leicht abweichen, wenn reMap komplex ist, 
+                // aber hier setzen wir den Rohwert auf den Slider.
+                $ID("matrixSpeed").value = data.matrixSpeed; 
+            }
+
+            // 5. Sound Delay
+            if(data.soundDelay !== undefined) {
+                // Mapping Rückwärts: 0-600ms -> 0-6 Slider
+                // data.soundDelay ist z.B. 600. Slider braucht 0. 
+                // HTML Logik: reMap(this.value, 0, 6, 0, 600) -> 0=0, 6=600
+                const sliderVal = data.soundDelay / 100; 
+                $ID("soundDelay").value = sliderVal;
+                writeDelayNum('soundDelayNum', data.soundDelay);
+            }
+
+            // 6. Yellow Flag Button Status
+            if(data.yellowFlag !== undefined) {
+                isYellowFlagActive = data.yellowFlag;
+                const btn = $ID('yellowFlagToggle');
+                if(isYellowFlagActive) { 
+                    btn.textContent = 'YELLOW FLAG OFF'; 
+                    btn.classList.add('active-state'); 
+                } else { 
+                    btn.textContent = 'YELLOW FLAG ON'; 
+                    btn.classList.remove('active-state'); 
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Fehler beim Parsen der Ampel-Daten:", e);
     }
 }
 
@@ -334,3 +410,4 @@ async function updateScheduleUI(races) {
         console.log(`[BATCH] ${count} Rennen gesendet.`);
     }
 }
+
